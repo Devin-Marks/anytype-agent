@@ -26,6 +26,9 @@ dev = [
     "mypy>=1.13.0",
     "hypothesis>=6.115.0",
 ]
+openshell = [
+    "openshell>=0.0.47",
+]
 
 [build-system]
 requires = ["hatchling"]
