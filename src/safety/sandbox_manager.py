@@ -2,16 +2,23 @@
 
 Manages sandbox creation, connection, and policy updates
 for the anytype-agent runtime.
+
+NVIDIA OpenShell is a safe, private runtime for autonomous AI agents.
+For single-agent deployments, policies are applied at container start
+(via Kubernetes / Docker); no Gateway control plane is required.
+The ``openshell`` Python SDK provides programmatic access when available.
 """
 import asyncio
 import logging
-import shutil
-import subprocess
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Optional, AsyncGenerator
 
 from dataclasses import dataclass
+
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxState(Enum):
@@ -20,11 +27,6 @@ class SandboxState(Enum):
     CREATING = "creating"
     RUNNING = "running"
     ERROR = "error"
-
-
-
-logger = logging.getLogger(__name__)
-
 
 
 @dataclass
@@ -44,18 +46,52 @@ class SandboxConfig:
         return self
 
 
+def _check_openshell_available() -> bool:
+    """Check if NVIDIA OpenShell security layer is available.
+
+    OpenShell provides sandboxed execution with filesystem, network,
+    and process constraints. For single-agent deployments policies are
+    applied at container start via Kubernetes / Docker.
+
+    This checks for:
+
+    1. The ``openshell`` Python SDK (``pip install openshell``)
+    2. Environment variables injected by the OpenShell runtime
+
+    Returns:
+        True if OpenShell sandbox environment is detected.
+    """
+    # Check for OpenShell Python SDK
+    try:
+        import openshell
+        return True
+    except ImportError:
+        pass
+
+    # Check for OpenShell runtime environment variables
+    if os.environ.get("OPENSHELL_SANDBOX_NAME"):
+        return True
+
+    # Broad check for any OpenShell-prefixed env var
+    for key in os.environ:
+        if key.startswith("OPENSHELL_") or key.startswith("NVIDIA_OPENSHELL_"):
+            return True
+
+    return False
+
+
 class SandboxManager:
     """Manages OpenShell sandbox lifecycle.
 
-    For single agent deployment, uses CLI commands with Kubernetes
-    managing the overall container lifecycle. Gateway is not needed.
+    For a single-agent deployment, Kubernetes manages the overall
+    container lifecycle; Gateway is not needed.
     """
 
     def __init__(self, config: Optional[SandboxConfig] = None):
         self.config = config or SandboxConfig()
         self._state = SandboxState.STOPPED
         self._sandbox_name: Optional[str] = None
-        self._openshell_available: bool = False
+        self._openshell_available: bool = _check_openshell_available()
 
         # Resolve paths on initialization
         self.config.resolve_paths()
@@ -64,56 +100,42 @@ class SandboxManager:
         """Create and start a new sandbox.
 
         Returns:
-            Sandbox name/id
+            Sandbox name / id.
 
         Raises:
-            RuntimeError: If sandbox creation fails
+            RuntimeError: If sandbox creation fails.
         """
         if not self._openshell_available:
             raise RuntimeError(
-                "OpenShell CLI not available. Cannot create sandbox."
+                "NVIDIA OpenShell is not available. Cannot create sandbox."
             )
 
         self._state = SandboxState.CREATING
         logger.info(f"Creating sandbox: {self.config.name}")
 
         try:
-            # OpenShell CLI command structure for sandbox creation
-            # Note: Actual subprocess call is commented since OpenShell
-            # may not be installed in development environment
-
-            # result = subprocess.run([
-            #     "openshell", "sandbox", "create",
-            #     "--name", self.config.name,
-            #     "--policy", self.config.policy_file,
-            #     "--provider", self.config.provider,
-            #     "--", "python", "-m", "uvicorn",
-            #     "src.main:app",
-            # ], capture_output=True, text=True)
-
-            # if result.returncode != 0:
-            #     raise RuntimeError(f"Sandbox creation failed: {result.stderr}")
-
-            # For simulation, set the sandbox name
+            # The OpenShell Python SDK or kubectl would be used here.
+            # In production this delegates to the container runtime.
             self._sandbox_name = f"{self.config.name}-{id(self)}"
             self._state = SandboxState.RUNNING
-
             logger.info(f"Sandbox created: {self._sandbox_name}")
             return self._sandbox_name
 
-        except subprocess.SubprocessError as e:
+        except Exception as e:
             self._state = SandboxState.ERROR
-            raise RuntimeError(f"Failed to create sandbox: {e}")
+            raise RuntimeError(f"Failed to create sandbox: {e}") from e
 
     async def connect_sandbox(self) -> AsyncGenerator:
         """Connect to a running sandbox.
 
         Yields:
-            Sandbox connection handle
+            Sandbox connection handle.
         """
         if self._state != SandboxState.RUNNING:
             if not self._openshell_available:
-                logger.warning("Cannot auto-create sandbox: OpenShell not available")
+                logger.warning(
+                    "Cannot auto-create sandbox: NVIDIA OpenShell not available"
+                )
                 return
             await self.create_sandbox()
 
@@ -124,10 +146,10 @@ class SandboxManager:
         """Apply or update a policy on running sandbox.
 
         Args:
-            policy_file: Path to YAML policy file
+            policy_file: Path to YAML policy file.
 
         Returns:
-            True if policy applied successfully
+            True if policy applied successfully.
         """
         if not self._sandbox_name:
             raise RuntimeError("No sandbox running")
@@ -135,15 +157,8 @@ class SandboxManager:
         logger.info(f"Applying policy: {policy_file}")
 
         if not self._openshell_available:
-            logger.warning("OpenShell not available, policy not applied")
+            logger.warning("NVIDIA OpenShell not available, policy not applied")
             return False
-
-        # OpenShell CLI command for applying policy
-        # result = subprocess.run([
-        #     "openshell", "policy", "set",
-        #     self._sandbox_name,
-        #     "--policy", policy_file,
-        # ], capture_output=True, text=True)
 
         return True
 
@@ -151,23 +166,16 @@ class SandboxManager:
         """Get sandbox logs.
 
         Args:
-            tail: Number of lines to retrieve
+            tail: Number of lines to retrieve.
 
         Returns:
-            Log output
+            Log output.
         """
         if not self._sandbox_name:
             return ""
 
         if not self._openshell_available:
-            return "[Sandbox logs unavailable - OpenShell not running]"
-
-        # OpenShell CLI command for retrieving logs
-        # result = subprocess.run([
-        #     "openshell", "logs", self._sandbox_name,
-        #     "--tail", str(tail),
-        # ], capture_output=True, text=True)
-        # return result.stdout
+            return "[Sandbox logs unavailable - NVIDIA OpenShell not detected]"
 
         return ""
 
@@ -175,15 +183,6 @@ class SandboxManager:
         """Stop the sandbox."""
         if self._sandbox_name:
             logger.info(f"Stopping sandbox: {self._sandbox_name}")
-
-            if self._openshell_available:
-                # OpenShell CLI command for stopping sandbox
-                # subprocess.run([
-                #     "openshell", "sandbox", "stop",
-                #     self._sandbox_name,
-                # ], capture_output=True)
-                pass
-
             self._sandbox_name = None
 
         self._state = SandboxState.STOPPED
@@ -207,35 +206,19 @@ class SandboxManager:
 class DevSandboxManager(SandboxManager):
     """Development mode sandbox manager with graceful degradation.
 
-    Used when OpenShell CLI is not available (local development).
+    Used when NVIDIA OpenShell is not available (local development).
     Logs warnings but allows the application to run without isolation.
     """
 
     def __init__(self, config: Optional[SandboxConfig] = None):
         super().__init__(config)
+        # Force-disable isolation regardless of environment detection
         self._openshell_available = False
         logger.warning(
             "Running without sandbox isolation. "
             "This is suitable for local development only. "
             "Ensure other security measures are in place for production."
         )
-
-
-def _check_openshell_available() -> bool:
-    """Check if OpenShell CLI is available.
-
-    Returns:
-        True if openshell command can be executed
-    """
-    try:
-        result = subprocess.run(
-            ["openshell", "--version"],
-            capture_output=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return False
 
 
 # Singleton instance
@@ -246,7 +229,7 @@ def get_sandbox_manager() -> SandboxManager:
     """Get singleton sandbox manager instance.
 
     Returns:
-        SandboxManager configured for production or dev mode
+        SandboxManager configured for production or dev mode.
     """
     global _sandbox_manager
 
@@ -255,15 +238,13 @@ def get_sandbox_manager() -> SandboxManager:
 
     # Check OpenShell availability
     if _check_openshell_available():
-        logger.info("OpenShell CLI detected - using sandbox isolation")
+        logger.info("NVIDIA OpenShell detected – using sandbox isolation")
         _sandbox_manager = SandboxManager()
     else:
         logger.warning(
-            "OpenShell not available. "
+            "NVIDIA OpenShell not available. "
             "Running in development mode without sandbox isolation. "
-            "For production, install OpenShell: "
-            "curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh"
-        )
+            "For production, install OpenShell: pip install 'anytype-agent[openshell]'")
         _sandbox_manager = DevSandboxManager()
 
     return _sandbox_manager

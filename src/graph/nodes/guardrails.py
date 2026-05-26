@@ -116,7 +116,7 @@ async def llm_input_guardrail(state: AgentState) -> dict:
     Uses a lightweight LLM model for content safety checks.
     Fail-open with logging is the default for input rails.
     """
-    from src.llm import get_router
+    from ...llm import get_router
     
     user_input = state["user_request"]
 
@@ -161,7 +161,7 @@ async def llm_output_guardrail(state: AgentState) -> dict:
     Uses a lightweight LLM model for content safety checks on outputs.
     Fail-closed on output rails is the default.
     """
-    from src.llm import get_router
+    from ...llm import get_router
     
     user_input = state["user_request"]
     output = state.get("output", "")

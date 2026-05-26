@@ -1,10 +1,8 @@
-"""Sandbox state definitions."""
-from enum import Enum
+"""Safety-related state definitions.
 
+SandboxState is defined in sandbox_manager.py to keep the enum close to its
+primary consumer and avoid circular imports.
+"""
+from .sandbox_manager import SandboxState
 
-class SandboxState(Enum):
-    """Sandbox lifecycle states."""
-    STOPPED = "stopped"
-    CREATING = "creating"
-    RUNNING = "running"
-    ERROR = "error"
+__all__ = ["SandboxState"]

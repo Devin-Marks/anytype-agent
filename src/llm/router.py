@@ -106,22 +106,51 @@ def get_router() -> LLMRouter:
 
 
 def _setup_default_routes(router: LLMRouter) -> None:
-    """Setup default routes from environment/config."""
+    """Setup default routes from environment/config.
+    
+    Respects ``settings.default_provider`` to choose the primary LLM provider.
+    Currently supports: openai, anthropic, ollama.
+    """
     from ..config import get_settings
     settings = get_settings()
+
+    provider_map = {
+        "openai": ProviderType.OPENAI,
+        "anthropic": ProviderType.ANTHROPIC,
+        "ollama": ProviderType.OLLAMA,
+    }
+    default_provider = provider_map.get(
+        settings.default_provider.lower(),
+        ProviderType.OPENAI,
+    )
+
+    # Determine the right API key / base_url for the chosen provider
+    if default_provider == ProviderType.OPENAI:
+        api_key = settings.openai_api_key
+        base_url = None
+    elif default_provider == ProviderType.ANTHROPIC:
+        api_key = settings.anthropic_api_key or settings.openai_api_key
+        base_url = None
+    elif default_provider == ProviderType.OLLAMA:
+        api_key = None
+        base_url = settings.ollama_base_url
+    else:
+        api_key = settings.openai_api_key
+        base_url = None
 
     # Main agent model (expensive)
     router.register_route(
         "agent",
         LLMConfig(
-            provider=ProviderType.OPENAI,
+            provider=default_provider,
             model=settings.model,
-            api_key=settings.openai_api_key,
+            api_key=api_key,
+            base_url=base_url,
         ),
         use_cases=["agent", "intent", "response"],
     )
 
-    # Guardrail model (cheap/fast)
+    # Guardrail model (cheap/fast) – always use OpenAI for reliability
     router.register_route(
         "guardrail",
         LLMConfig(
