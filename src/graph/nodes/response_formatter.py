@@ -2,9 +2,7 @@
 import logging
 from typing import Optional
 
-from openai import AsyncOpenAI
-
-from ..config import get_settings
+from src.llm import get_router
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -12,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 async def format_response(state: AgentState) -> dict:
     """Format tool result into user-friendly output."""
-    settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    router = get_router()
+    provider = router.get_route("response")
 
     tool_result = state.get("tool_result")
     tool_error = state.get("tool_error")
@@ -26,25 +24,21 @@ async def format_response(state: AgentState) -> dict:
         return {"output": "No result available"}
 
     try:
-        response = await client.chat.completions.create(
-            model=settings.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are a response formatter.
-                    Format tool results into user-friendly responses.
-                    Keep responses concise and clear.""",
-                },
-                {
-                    "role": "user",
-                    "content": f"Format this result for the user:\n{tool_result}",
-                },
-            ],
-            temperature=0.3,
-            max_tokens=500,
-        )
+        messages = [
+            {
+                "role": "system",
+                "content": """You are a response formatter.
+                Format tool results into user-friendly responses.
+                Keep responses concise and clear.""",
+            },
+            {
+                "role": "user",
+                "content": f"Format this result for the user:\n{tool_result}",
+            },
+        ]
 
-        return {"output": response.choices[0].message.content}
+        response = await provider.complete(messages)
+        return {"output": response.content}
 
     except Exception as e:
         # Fallback to simple formatting

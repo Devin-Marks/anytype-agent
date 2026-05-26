@@ -3,9 +3,7 @@ import json
 import logging
 from typing import Optional
 
-from openai import AsyncOpenAI
-
-from ..config import get_settings
+from src.llm import get_router
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -25,31 +23,27 @@ INTENT_PATTERNS = {
 
 async def parse_intent(state: AgentState) -> dict:
     """Parse user request to determine intent and parameters."""
-    settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    router = get_router()
+    provider = router.get_route("intent")
 
     user_request = state["user_request"]
 
     try:
-        response = await client.chat.completions.create(
-            model=settings.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are an intent parser for Anytype API.
-                    Extract the intent and parameters from user requests.
-                    Return JSON with: intent, object_type, params.
-                    Intents: create_page, read_page, update_page, delete_page,
-                    create_task, update_task, complete_task, list_projects,
-                    search_objects, unknown""",
-                },
-                {"role": "user", "content": user_request},
-            ],
-            temperature=0,
-            max_tokens=200,
-        )
+        messages = [
+            {
+                "role": "system",
+                "content": """You are an intent parser for Anytype API.
+                Extract the intent and parameters from user requests.
+                Return JSON with: intent, object_type, params.
+                Intents: create_page, read_page, update_page, delete_page,
+                create_task, update_task, complete_task, list_projects,
+                search_objects, unknown""",
+            },
+            {"role": "user", "content": user_request},
+        ]
 
-        content = response.choices[0].message.content
+        response = await provider.complete(messages)
+        content = response.content
 
         # Parse JSON response
         try:

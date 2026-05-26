@@ -40,6 +40,18 @@ class Settings(BaseSettings):
         default="gpt-4o-mini",
         description="LLM model for guardrail checks",
     )
+    default_provider: str = Field(
+        default="openai",
+        description="Default LLM provider (openai, anthropic, ollama)",
+    )
+    anthropic_api_key: Optional[str] = Field(
+        default=None,
+        description="Anthropic API key for Claude",
+    )
+    ollama_base_url: Optional[str] = Field(
+        default=None,
+        description="Base URL for Ollama (e.g., http://localhost:11434)",
+    )
 
     # Guardrails
     guardrails_config_path: str = Field(

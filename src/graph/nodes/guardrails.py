@@ -107,3 +107,106 @@ async def output_guardrail(state: AgentState) -> dict:
         }
 
     return {"blocked": False}
+
+
+# LLM-based guardrail functions (alternative to NeMo)
+async def llm_input_guardrail(state: AgentState) -> dict:
+    """LLM-based input guardrail using the guardrail model.
+
+    Uses a lightweight LLM model for content safety checks.
+    Fail-open with logging is the default for input rails.
+    """
+    from src.llm import get_router
+    
+    user_input = state["user_request"]
+
+    try:
+        router = get_router()
+        provider = router.get_route("guardrail")
+        
+        messages = [
+            {
+                "role": "system",
+                "content": """You are a content safety checker.
+                Review the user input and determine if it contains harmful,
+                inappropriate, or policy-violating content.
+                Respond with only "safe" or "unsafe" followed by a brief reason.
+                Examples:
+                - "safe" - Normal user request
+                - "unsafe: request asks for harmful advice" - Contains harmful content""",
+            },
+            {"role": "user", "content": user_input},
+        ]
+        
+        response = await provider.complete(messages)
+        result = response.content.lower().strip()
+        
+        if result.startswith("unsafe"):
+            return {
+                "blocked": True,
+                "block_reason": f"Input blocked by LLM guardrail: {result}",
+            }
+        
+        return {"blocked": False}
+        
+    except Exception as e:
+        # Fail-open on input rails with logging
+        logger.warning(f"LLM input guardrail check failed: {e}")
+        return {"blocked": False}
+
+
+async def llm_output_guardrail(state: AgentState) -> dict:
+    """LLM-based output guardrail using the guardrail model.
+
+    Uses a lightweight LLM model for content safety checks on outputs.
+    Fail-closed on output rails is the default.
+    """
+    from src.llm import get_router
+    
+    user_input = state["user_request"]
+    output = state.get("output", "")
+
+    if not output:
+        return {"blocked": False}
+
+    try:
+        router = get_router()
+        provider = router.get_route("guardrail")
+        
+        messages = [
+            {
+                "role": "system",
+                "content": """You are a content safety checker.
+                Review the assistant's response and determine if it contains harmful,
+                inappropriate, or policy-violating content.
+                Respond with only "safe" or "unsafe" followed by a brief reason.
+                Examples:
+                - "safe" - Normal response
+                - "unsafe: response contains harmful instructions" - Contains harmful content""",
+            },
+            {
+                "role": "user", 
+                "content": f"User request: {user_input}\nAssistant response: {output}"
+            },
+        ]
+        
+        response = await provider.complete(messages)
+        result = response.content.lower().strip()
+        
+        if result.startswith("unsafe"):
+            return {
+                "blocked": True,
+                "output": "I cannot help with that.",
+                "block_reason": f"Output blocked by LLM guardrail: {result}",
+            }
+        
+        return {"blocked": False}
+        
+    except Exception as e:
+        # Fail-closed on output rails
+        logger.error(f"LLM output guardrail check failed: {e}")
+        return {
+            "blocked": True,
+            "output": "I cannot help with that.",
+            "block_reason": "Output guardrail check failed",
+        }
