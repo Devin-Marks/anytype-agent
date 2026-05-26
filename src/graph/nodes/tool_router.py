@@ -48,7 +48,7 @@ async def execute_tool(state: AgentState) -> dict:
         
         try:
             tool = registry.get_tool(tool_name)
-            result = await tool.execute(**tool_params)
+            result = await tool.execute_with_validation(**tool_params)
             return {
                 "tool_name": tool_name,
                 "tool_result": result,

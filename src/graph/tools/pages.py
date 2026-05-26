@@ -9,10 +9,11 @@ class CreatePageTool(BaseTool):
 
     name = "create_page"
     description = "Create a new page in Anytype"
+    required_params = ["title"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Create a new page.
-        
+
         Args:
             title: Page title
             content: Initial content (optional)
@@ -36,19 +37,17 @@ class ReadPageTool(BaseTool):
 
     name = "read_page"
     description = "Read a page from Anytype"
+    required_params = ["page_id"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Read a page by ID.
-        
+
         Args:
             page_id: The page ID to read
             space_id: Space ID (optional)
         """
         page_id = kwargs.get("page_id")
         space_id = kwargs.get("space_id")
-
-        if not page_id:
-            return {"success": False, "error": "page_id is required"}
 
         # TODO: Integrate with Anytype API
         return {
@@ -65,10 +64,11 @@ class UpdatePageTool(BaseTool):
 
     name = "update_page"
     description = "Update an existing page in Anytype"
+    required_params = ["page_id"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Update a page.
-        
+
         Args:
             page_id: The page ID to update
             title: New title (optional)
@@ -79,9 +79,6 @@ class UpdatePageTool(BaseTool):
         title = kwargs.get("title")
         content = kwargs.get("content")
         space_id = kwargs.get("space_id")
-
-        if not page_id:
-            return {"success": False, "error": "page_id is required"}
 
         # TODO: Integrate with Anytype API
         return {
@@ -98,19 +95,17 @@ class DeletePageTool(BaseTool):
 
     name = "delete_page"
     description = "Delete a page from Anytype"
+    required_params = ["page_id"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Delete a page.
-        
+
         Args:
             page_id: The page ID to delete
             space_id: Space ID (optional)
         """
         page_id = kwargs.get("page_id")
         space_id = kwargs.get("space_id")
-
-        if not page_id:
-            return {"success": False, "error": "page_id is required"}
 
         # TODO: Integrate with Anytype API
         return {

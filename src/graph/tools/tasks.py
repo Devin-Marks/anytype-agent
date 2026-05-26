@@ -9,10 +9,11 @@ class CreateTaskTool(BaseTool):
 
     name = "create_task"
     description = "Create a new task in Anytype"
+    required_params = ["title"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Create a new task.
-        
+
         Args:
             title: Task title
             description: Task description (optional)
@@ -41,10 +42,11 @@ class UpdateTaskTool(BaseTool):
 
     name = "update_task"
     description = "Update an existing task in Anytype"
+    required_params = ["task_id"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Update a task.
-        
+
         Args:
             task_id: The task ID to update
             title: New title (optional)
@@ -59,9 +61,6 @@ class UpdateTaskTool(BaseTool):
         due_date = kwargs.get("due_date")
         status = kwargs.get("status")
         space_id = kwargs.get("space_id")
-
-        if not task_id:
-            return {"success": False, "error": "task_id is required"}
 
         # TODO: Integrate with Anytype API
         return {
@@ -80,19 +79,17 @@ class CompleteTaskTool(BaseTool):
 
     name = "complete_task"
     description = "Mark a task as complete"
+    required_params = ["task_id"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Mark a task as complete.
-        
+
         Args:
             task_id: The task ID to complete
             space_id: Space ID (optional)
         """
         task_id = kwargs.get("task_id")
         space_id = kwargs.get("space_id")
-
-        if not task_id:
-            return {"success": False, "error": "task_id is required"}
 
         # TODO: Integrate with Anytype API
         return {

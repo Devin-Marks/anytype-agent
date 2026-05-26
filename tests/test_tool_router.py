@@ -65,7 +65,7 @@ class TestExecuteTool:
     @pytest.mark.asyncio
     async def test_tool_execution(self):
         mock_tool = AsyncMock()
-        mock_tool.execute = AsyncMock(return_value={"success": True, "id": "123"})
+        mock_tool.execute_with_validation = AsyncMock(return_value={"success": True, "id": "123"})
         mock_registry = MagicMock()
         mock_registry.get_tool = MagicMock(return_value=mock_tool)
 
@@ -90,12 +90,12 @@ class TestExecuteTool:
 
         assert result["tool_name"] == "create_page"
         assert result["tool_result"]["success"] is True
-        mock_tool.execute.assert_awaited_once_with(title="Test Page", space_id="space_1")
+        mock_tool.execute_with_validation.assert_awaited_once_with(title="Test Page", space_id="space_1")
 
     @pytest.mark.asyncio
     async def test_tool_execution_failure(self):
         mock_tool = AsyncMock()
-        mock_tool.execute = AsyncMock(side_effect=Exception("API error"))
+        mock_tool.execute_with_validation = AsyncMock(side_effect=Exception("API error"))
         mock_registry = MagicMock()
         mock_registry.get_tool = MagicMock(return_value=mock_tool)
 

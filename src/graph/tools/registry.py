@@ -11,10 +11,14 @@ class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, "BaseTool"] = {}
 
-    def register(self, name: str, tool: "BaseTool") -> None:
-        """Register a tool with the registry."""
-        self._tools[name] = tool
-        logger.debug(f"Registered tool: {name}")
+    def register(self, tool: "BaseTool") -> None:
+        """Register a tool with the registry.
+
+        Args:
+            tool: Tool instance to register
+        """
+        self._tools[tool.name] = tool
+        logger.debug(f"Registered tool: {tool.name}")
 
     def get_tool(self, name: str) -> Optional["BaseTool"]:
         """Get a tool by name."""
@@ -27,6 +31,17 @@ class ToolRegistry:
     def has_tool(self, name: str) -> bool:
         """Check if a tool is registered."""
         return name in self._tools
+
+    def get_tool_info(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get tool information."""
+        tool = self.get_tool(name)
+        if tool:
+            return {
+                "name": tool.name,
+                "description": tool.description,
+                "required_params": tool.required_params,
+            }
+        return None
 
 
 # Global registry instance
@@ -44,32 +59,39 @@ def get_tool_registry() -> ToolRegistry:
 
 def _register_default_tools() -> None:
     """Register default tools."""
-    # Import tools to register them
     try:
         from .pages import CreatePageTool, ReadPageTool, UpdatePageTool, DeletePageTool
         from .tasks import CreateTaskTool, UpdateTaskTool, CompleteTaskTool
         from .projects import ListProjectsTool
         from .queries import SearchTool
-        
+        from .bookmarks import CreateBookmarkTool
+        from .chats import SendMessageTool
+
         registry = get_tool_registry()
-        
+
         # Register page tools
-        registry.register("create_page", CreatePageTool())
-        registry.register("read_page", ReadPageTool())
-        registry.register("update_page", UpdatePageTool())
-        registry.register("delete_page", DeletePageTool())
-        
+        registry.register(CreatePageTool())
+        registry.register(ReadPageTool())
+        registry.register(UpdatePageTool())
+        registry.register(DeletePageTool())
+
         # Register task tools
-        registry.register("create_task", CreateTaskTool())
-        registry.register("update_task", UpdateTaskTool())
-        registry.register("complete_task", CompleteTaskTool())
-        
+        registry.register(CreateTaskTool())
+        registry.register(UpdateTaskTool())
+        registry.register(CompleteTaskTool())
+
         # Register project tools
-        registry.register("list_projects", ListProjectsTool())
-        
+        registry.register(ListProjectsTool())
+
         # Register search tool
-        registry.register("search", SearchTool())
-        
+        registry.register(SearchTool())
+
+        # Register bookmark tool
+        registry.register(CreateBookmarkTool())
+
+        # Register chat tool
+        registry.register(SendMessageTool())
+
         logger.info(f"Registered {len(registry.list_tools())} tools")
     except ImportError as e:
         logger.warning(f"Could not register default tools: {e}")

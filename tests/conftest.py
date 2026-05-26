@@ -117,15 +117,15 @@ def registered_registry():
     from src.graph.tools.queries import SearchTool
 
     reg = ToolRegistry()
-    reg.register("create_page", CreatePageTool())
-    reg.register("read_page", ReadPageTool())
-    reg.register("update_page", UpdatePageTool())
-    reg.register("delete_page", DeletePageTool())
-    reg.register("create_task", CreateTaskTool())
-    reg.register("update_task", UpdateTaskTool())
-    reg.register("complete_task", CompleteTaskTool())
-    reg.register("list_projects", ListProjectsTool())
-    reg.register("search", SearchTool())
+    reg.register(CreatePageTool())
+    reg.register(ReadPageTool())
+    reg.register(UpdatePageTool())
+    reg.register(DeletePageTool())
+    reg.register(CreateTaskTool())
+    reg.register(UpdateTaskTool())
+    reg.register(CompleteTaskTool())
+    reg.register(ListProjectsTool())
+    reg.register(SearchTool())
     return reg
 
 

@@ -9,10 +9,11 @@ class SearchTool(BaseTool):
 
     name = "search"
     description = "Search for objects in Anytype"
+    required_params = ["query"]
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """Search for objects.
-        
+
         Args:
             query: Search query string
             object_types: List of object types to search (optional)
@@ -23,9 +24,6 @@ class SearchTool(BaseTool):
         object_types = kwargs.get("object_types", [])
         space_id = kwargs.get("space_id")
         limit = kwargs.get("limit", 20)
-
-        if not query:
-            return {"success": False, "error": "query is required"}
 
         # TODO: Integrate with Anytype API
         # Return mock data for now

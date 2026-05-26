@@ -9,10 +9,11 @@ class ListProjectsTool(BaseTool):
 
     name = "list_projects"
     description = "List all projects in Anytype"
+    required_params = []
 
     async def execute(self, **kwargs) -> Dict[str, Any]:
         """List all projects.
-        
+
         Args:
             space_id: Space ID to list projects from (optional)
             limit: Maximum number of projects to return (optional)
