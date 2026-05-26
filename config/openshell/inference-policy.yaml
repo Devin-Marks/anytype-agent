@@ -1,0 +1,19 @@
+# Inference routing policy
+# Routes LLM API calls through privacy-preserving proxy
+
+version: "1.0"
+inference:
+  # Primary inference backend
+  primary:
+    provider: openai
+    model: gpt-4o
+
+  # Privacy settings
+  privacy:
+    strip_credentials: true
+    use_sandbox_credentials: true
+
+  # Rate limiting per sandbox
+  rate_limit:
+    requests_per_minute: 60
+    tokens_per_minute: 120000

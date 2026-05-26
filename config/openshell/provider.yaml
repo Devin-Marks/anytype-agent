@@ -1,0 +1,18 @@
+# Credential provider configuration
+# Credentials injected at sandbox runtime, never written to disk
+
+version: "1.0"
+providers:
+  - name: anytype
+    type: api_key
+    inject_env: true
+    # Actual value set via openshell CLI or secrets manager
+
+  - name: openai
+    type: api_key
+    inject_env: true
+    # ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+
+  - name: anthropic
+    type: api_key
+    inject_env: true

@@ -1,19 +1,37 @@
 """FastAPI application entry point."""
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .schemas import AgentRequest, AgentResponse, ErrorResponse
+from .safety import get_sandbox_manager, SandboxState
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
+    """"Application lifespan handler."""
     # Startup
     settings = get_settings()
+    
+    # Initialize sandbox manager
+    sandbox_mgr = get_sandbox_manager()
+    
+    if not sandbox_mgr.is_available:
+        logger.warning(
+            "OpenShell not available. Running without sandbox isolation. "
+            "This is suitable for local development only."
+        )
+    else:
+        logger.info("Sandbox manager initialized with OpenShell isolation")
+    
     yield
+    
     # Shutdown
+    await sandbox_mgr.stop_sandbox()
 
 
 app = FastAPI(
@@ -37,6 +55,24 @@ app.add_middleware(
 async def health():
     """Liveness probe."""
     return {"ok": True}
+
+
+
+@app.get("/health/sandbox")
+async def sandbox_health():
+    """Sandbox status endpoint.
+    
+    Returns the current sandbox state and availability.
+    """
+    sandbox_mgr = get_sandbox_manager()
+    
+    return {
+        "ok": True,
+        "openshell_available": sandbox_mgr.is_available,
+        "sandbox_state": sandbox_mgr.state.value,
+        "sandbox_name": sandbox_mgr.sandbox_name,
+        "isolated": sandbox_mgr.is_available and sandbox_mgr.state == SandboxState.RUNNING,
+    }
 
 
 @app.get("/ready")

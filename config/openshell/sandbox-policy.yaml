@@ -1,0 +1,56 @@
+# Sandbox policy for anytype-agent
+# Defines filesystem, network, and process constraints
+
+version: "1.0"
+sandbox:
+  name: anytype-agent
+  description: Sandboxed environment for Anytype API interactions
+
+filesystem:
+  # Read-only system paths
+  read_only:
+    - /usr
+    - /lib
+    - /lib64
+    - /bin
+    - /sbin
+
+  # Writable application paths
+  writable:
+    - /app
+    - /tmp
+
+  # Blocked paths (attempting access = rejection)
+  blocked:
+    - /host
+    - /proc/1/root
+    - /sys/fs/cgroup
+
+network:
+  # Allowed outbound destinations
+  allow:
+    - host: "anytype-cli"
+      port: 31012
+      protocol: http
+    - host: "api.openai.com"
+      port: 443
+      protocol: https
+    - host: "api.anthropic.com"
+      port: 443
+      protocol: https
+
+  # Default deny (all other outbound blocked)
+
+process:
+  # Blocked commands
+  blocked:
+    - rm
+    - chmod
+    - sudo
+    - su
+
+  # Max execution time (seconds)
+  max_execution_time: 30
+
+  # Max concurrent processes
+  max_processes: 10
