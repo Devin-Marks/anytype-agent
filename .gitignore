@@ -60,3 +60,7 @@ implementation/
 # Local development files
 *.local
 .local/
+
+# Documentation (development references)
+IMPLEMENTATION_PLAN.md
+langgraph.md
