@@ -6,7 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .schemas import AgentRequest, AgentResponse, ErrorResponse
-from .safety import get_sandbox_manager, SandboxState
+from .safety import (
+    get_sandbox_manager,
+    SandboxState,
+    get_health_checker,
+    get_security_logger,
+    HealthStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +78,34 @@ async def sandbox_health():
         "sandbox_state": sandbox_mgr.state.value,
         "sandbox_name": sandbox_mgr.sandbox_name,
         "isolated": sandbox_mgr.is_available and sandbox_mgr.state == SandboxState.RUNNING,
+    }
+
+
+@app.get("/health/container")
+async def container_health():
+    """Check container security health.
+    
+    Runs all health checks to verify OpenShell sandbox security
+    is active and functioning correctly.
+    
+    Returns:
+        JSON with health status, message, and check details.
+    """
+    checker = get_health_checker()
+    result = await checker.check()
+    
+    # Log the health check result
+    logger_sec = get_security_logger()
+    logger_sec.log_health_check(
+        status=result.status.value,
+        message=result.message,
+        details=result.details,
+    )
+    
+    return {
+        "status": result.status.value,
+        "message": result.message,
+        "checks": result.details,
     }
 
 
