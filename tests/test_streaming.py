@@ -1,5 +1,6 @@
 """Tests for SSE streaming support."""
 import json
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -62,6 +63,16 @@ class TestStreamEvent:
 
         assert event.to_sse()["comment"] == "keepalive"
 
+    def test_to_sse_handles_non_json_primitives(self):
+        event = StreamEvent(
+            StreamEventType.TOOL_RESULT,
+            {"result": {"created_at": datetime(2026, 1, 1)}},
+        )
+
+        assert json.loads(event.to_sse()["data"]) == {
+            "result": {"created_at": "2026-01-01 00:00:00"}
+        }
+
 
 class TestStreamingHandler:
     """Tests for StreamingHandler."""
@@ -123,6 +134,24 @@ class TestStreamingHandler:
         assert len(events) == 1
         assert events[0].event_type == StreamEventType.ERROR
         assert events[0].data == {"error": "boom"}
+
+    @pytest.mark.asyncio
+    async def test_stream_response_graph_error_state(self):
+        graph = FakeGraph([
+            {"tool_name": "create_page", "is_error": True, "tool_error": "tool failed"},
+            {"output": "Error: tool failed"},
+        ])
+        handler = StreamingHandler(graph)
+
+        events = [event async for event in handler.stream_response({})]
+
+        assert [event.event_type for event in events] == [
+            StreamEventType.TOOL_CALL,
+            StreamEventType.ERROR,
+            StreamEventType.OUTPUT,
+            StreamEventType.DONE,
+        ]
+        assert events[1].data == {"error": "tool failed"}
 
 
 class TestStreamingSchemas:
@@ -188,3 +217,18 @@ class TestStreamingEndpoints:
             "configurable": {"thread_id": "thread-1"},
             "stream_mode": "values",
         }
+
+    def test_stream_invoke_json_fallback(self, streaming_client):
+        graph = FakeGraph([{"intent": "create_page"}, {"output": "Done"}])
+
+        with patch("src.graph.builder.get_graph", return_value=graph):
+            response = streaming_client.post(
+                "/stream/invoke?stream=false",
+                json={"input": "Create page"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["output"] == "Done"
+        assert data["blocked"] is False
+        assert [event["event"] for event in data["events"]] == ["thinking", "output", "done"]

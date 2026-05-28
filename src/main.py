@@ -1,12 +1,12 @@
 """FastAPI application entry point."""
 import logging
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .api import StreamingHandler
-from .schemas import AgentRequest, AgentResponse
+from .schemas import AgentRequest, AgentResponse, StreamEventSchema, StreamResponse
 from .safety import (
     get_sandbox_manager,
     SandboxState,
@@ -60,8 +60,8 @@ streaming_router = APIRouter(prefix="/stream", tags=["streaming"])
 
 
 @streaming_router.post("/invoke")
-async def stream_invoke(request: AgentRequest):
-    """Stream an agent invocation as Server-Sent Events."""
+async def stream_invoke(request: AgentRequest, stream: bool = Query(True)):
+    """Invoke the agent through streaming SSE or a JSON fallback."""
     from .graph.builder import get_graph
 
     graph = get_graph()
@@ -76,6 +76,24 @@ async def stream_invoke(request: AgentRequest):
     config = {}
     if request.thread_id:
         config["configurable"] = {"thread_id": request.thread_id}
+
+    if not stream:
+        events = [event async for event in handler.stream_response(initial_state, config=config)]
+        output = next(
+            (
+                event.data["output"]
+                for event in reversed(events)
+                if event.event_type.value == "output" and "output" in event.data
+            ),
+            None,
+        )
+        return StreamResponse(
+            events=[
+                StreamEventSchema(event=event.event_type.value, data=event.data)
+                for event in events
+            ],
+            output=output,
+        )
 
     return await handler.stream_to_sse(initial_state, config=config)
 

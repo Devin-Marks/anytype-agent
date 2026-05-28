@@ -35,7 +35,7 @@ class StreamEvent:
         """Convert to SSE response format."""
         event = {
             "event": self.event_type.value,
-            "data": json.dumps(self.data),
+            "data": json.dumps(self.data, default=str),
         }
         if self.comment is not None:
             event["comment"] = self.comment
@@ -122,6 +122,14 @@ class StreamingHandler:
             yield StreamEvent(
                 event_type=StreamEventType.TOOL_RESULT,
                 data={"result": tool_result},
+            )
+
+        error_detail = chunk.get("tool_error") or chunk.get("error_detail")
+        if chunk.get("is_error") and error_detail and emitted_values.get("error") != error_detail:
+            emitted_values["error"] = error_detail
+            yield StreamEvent(
+                event_type=StreamEventType.ERROR,
+                data={"error": error_detail},
             )
 
         output = chunk.get("output")
