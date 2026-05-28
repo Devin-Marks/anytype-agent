@@ -1,17 +1,17 @@
 """FastAPI application entry point."""
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .schemas import AgentRequest, AgentResponse, ErrorResponse
+from .api import StreamingHandler
+from .schemas import AgentRequest, AgentResponse
 from .safety import (
     get_sandbox_manager,
     SandboxState,
     get_health_checker,
     get_security_logger,
-    HealthStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+streaming_router = APIRouter(prefix="/stream", tags=["streaming"])
+
+
+@streaming_router.post("/invoke")
+async def stream_invoke(request: AgentRequest):
+    """Stream an agent invocation as Server-Sent Events."""
+    from .graph.builder import get_graph
+
+    graph = get_graph()
+    handler = StreamingHandler(graph)
+
+    initial_state = {
+        "user_request": request.input,
+        "space_id": request.space_id,
+        "blocked": False,
+    }
+
+    config = {}
+    if request.thread_id:
+        config["configurable"] = {"thread_id": request.thread_id}
+
+    return await handler.stream_to_sse(initial_state, config=config)
+
+
+@streaming_router.get("/events")
+async def stream_events(request: Request):
+    """Stream agent events using query parameters for EventSource clients."""
+    from .graph.builder import get_graph
+
+    input_text = request.query_params.get("input", "")
+    thread_id = request.query_params.get("thread_id")
+    space_id = request.query_params.get("space_id")
+
+    graph = get_graph()
+    handler = StreamingHandler(graph)
+
+    config = {"configurable": {"thread_id": thread_id}} if thread_id else None
+    return await handler.stream_to_sse(
+        {"user_request": input_text, "space_id": space_id, "blocked": False},
+        config=config,
+    )
+
+
+app.include_router(streaming_router)
 
 
 @app.get("/health")

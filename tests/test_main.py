@@ -16,6 +16,7 @@ def client(mock_settings):
             mock_instance.is_available = False
             mock_instance.state = MagicMock(value="stopped")
             mock_instance.sandbox_name = None
+            mock_instance.stop_sandbox = AsyncMock()
             mock_mgr.return_value = mock_instance
             with TestClient(app) as test_client:
                 yield test_client
@@ -40,6 +41,7 @@ class TestHealthEndpoints:
             mock_instance.is_available = False
             mock_instance.state = MagicMock(value="stopped")
             mock_instance.sandbox_name = None
+            mock_instance.stop_sandbox = AsyncMock()
             mock_mgr.return_value = mock_instance
 
             response = client.get("/health/sandbox")

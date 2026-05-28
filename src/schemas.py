@@ -1,5 +1,5 @@
 """Pydantic request/response schemas."""
-from typing import Optional, List, Any, Literal
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
@@ -27,3 +27,19 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     request_id: Optional[str] = None
+
+
+class StreamEventSchema(BaseModel):
+    """Schema for SSE event payloads."""
+
+    event: str = Field(description="Event type (thinking, tool_call, etc.)")
+    data: dict[str, Any] = Field(description="Event payload")
+
+
+class StreamResponse(BaseModel):
+    """Response model for non-streaming fallback clients."""
+
+    events: list[StreamEventSchema]
+    output: Optional[str] = None
+    blocked: bool = False
+    block_reason: Optional[str] = None
