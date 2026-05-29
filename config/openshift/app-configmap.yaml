@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anytype-agent-config
+  namespace: anytype
+  labels:
+    app.kubernetes.io/name: anytype-agent
+    app.kubernetes.io/component: app-config
+data:
+  ANYTYPE_BASE_URL: "http://anytype-cli:31012"
+  ANYTYPE_API_VERSION: "2025-11-08"
+  DEFAULT_PROVIDER: "openai"
+  MODEL: "gpt-4o"
+  GUARDRAIL_MODEL: "gpt-4o-mini"
+  GUARDRAILS_CONFIG_PATH: "/etc/guardrails"
+  SHELL_PROTECTION_ENABLED: "true"
+  OPENSHELL_POLICY_PATH: "/etc/openshell/policies/sandbox-policy.yaml"
+  OPENSHELL_INFERENCE_POLICY_PATH: "/etc/openshell/policies/inference-policy.yaml"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  LOG_LEVEL: "INFO"

@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: anytype-agent-network-policy
+  namespace: anytype
+  labels:
+    app.kubernetes.io/name: anytype-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: anytype-agent
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network-policy.openshift.io/ingress: "true"
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # DNS via OpenShift DNS pods.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+          podSelector:
+            matchLabels:
+              dns.operator.openshift.io/daemonset-dns: default
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Anytype API in the same namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: anytype-cli
+      ports:
+        - protocol: TCP
+          port: 31012
+    # Public LLM APIs. Kubernetes NetworkPolicy cannot restrict by FQDN;
+    # OpenShell policy narrows this egress to approved providers.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anytype-agent-policy
+  namespace: anytype
+  labels:
+    app.kubernetes.io/name: anytype-agent
+    app.kubernetes.io/component: openshell-policy
+data:
+  sandbox-policy.yaml: |
+    version: "1.0"
+    sandbox:
+      name: anytype-agent
+      description: Sandboxed environment for Anytype API interactions
+
+    filesystem:
+      read_only:
+        - /usr
+        - /lib
+        - /lib64
+        - /bin
+        - /sbin
+      writable:
+        - /app
+        - /tmp
+      blocked:
+        - /host
+        - /proc/1/root
+        - /sys/fs/cgroup
+
+    network:
+      allow:
+        - host: "anytype-cli"
+          port: 31012
+          protocol: http
+        - host: "api.openai.com"
+          port: 443
+          protocol: https
+        - host: "api.anthropic.com"
+          port: 443
+          protocol: https
+
+    process:
+      blocked:
+        - rm
+        - chmod
+        - sudo
+        - su
+      max_execution_time: 30
+      max_processes: 10
+
+  inference-policy.yaml: |
+    version: "1.0"
+    inference:
+      primary:
+        provider: openai
+        model: gpt-4o
+      privacy:
+        strip_credentials: true
+        use_sandbox_credentials: true
+      rate_limit:
+        requests_per_minute: 60
+        tokens_per_minute: 120000
+
+  provider.yaml: |
+    version: "1.0"
+    providers:
+      - name: anytype
+        type: api_key
+        inject_env: true
+      - name: openai
+        type: api_key
+        inject_env: true
+      - name: anthropic
+        type: api_key
+        inject_env: true
