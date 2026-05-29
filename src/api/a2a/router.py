@@ -2,7 +2,7 @@
 import json
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .agent_card import get_anytype_agent_card
@@ -12,15 +12,16 @@ router = APIRouter(tags=["A2A"])
 
 
 @router.get("/.well-known/agent.json")
-async def get_agent_card() -> JSONResponse:
+async def get_agent_card(request: Request) -> JSONResponse:
     """Return the A2A discovery Agent Card at the standard path."""
-    return JSONResponse(content=get_anytype_agent_card().to_dict())
+    base_url = str(request.base_url).rstrip("/")
+    return JSONResponse(content=get_anytype_agent_card(base_url).to_dict())
 
 
 @router.get("/a2a/.well-known/agent.json")
-async def get_agent_card_compat() -> JSONResponse:
+async def get_agent_card_compat(request: Request) -> JSONResponse:
     """Return the Agent Card under the A2A prefix for clients expecting it there."""
-    return await get_agent_card()
+    return await get_agent_card(request)
 
 
 @router.post("/a2a/tasks/send")

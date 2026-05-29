@@ -72,7 +72,9 @@ class TestAgentCard:
         response = a2a_client.get("/.well-known/agent.json")
 
         assert response.status_code == 200
-        assert response.json()["name"] == "anytype-agent"
+        body = response.json()
+        assert body["name"] == "anytype-agent"
+        assert body["url"] == "http://testserver"
 
 
 class TestA2AServer:
