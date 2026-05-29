@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from sse_starlette.sse import EventStreamResponse
+from sse_starlette.sse import EventSourceResponse
 
 
 class StreamEventType(Enum):
@@ -144,7 +144,7 @@ class StreamingHandler:
         self,
         state: dict[str, Any],
         config: dict[str, Any] | None = None,
-    ) -> EventStreamResponse:
+    ) -> EventSourceResponse:
         """Convert the graph event stream to an SSE response.
 
         Args:
@@ -159,7 +159,7 @@ class StreamingHandler:
             async for event in self.stream_response(state, config):
                 yield event.to_sse()
 
-        return EventStreamResponse(
+        return EventSourceResponse(
             event_generator(),
             media_type="text/event-stream",
         )

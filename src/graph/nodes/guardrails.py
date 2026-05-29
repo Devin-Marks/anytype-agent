@@ -8,7 +8,12 @@ from ..state import AgentState
 try:
     from nemoguardrails import LLMRails, RailsConfig
     NEMO_AVAILABLE = True
-except ImportError:
+except Exception as exc:  # pragma: no cover - depends on optional dependency compatibility
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "NeMo Guardrails unavailable, guardrails will be bypassed: %s",
+        exc,
+    )
     NEMO_AVAILABLE = False
     LLMRails = None
     RailsConfig = None
