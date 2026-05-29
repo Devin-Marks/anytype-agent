@@ -4,11 +4,12 @@ Manages sandbox creation, connection, and policy updates
 for the anytype-agent runtime.
 
 NVIDIA OpenShell is a safe, private runtime for autonomous AI agents.
-For single-agent deployments, policies are applied at container start
-(via Kubernetes / Docker); no Gateway control plane is required.
-The ``openshell`` Python SDK provides programmatic access when available.
+OpenShell sandbox creation requires a gateway/control plane. Kubernetes
+support is provided by NVIDIA's official OpenShell Helm chart plus the
+Kubernetes SIG Agent Sandbox controller. The ``openshell`` Python package
+provides the CLI/client when installed, but its presence alone does not make
+the current process sandboxed.
 """
-import asyncio
 import logging
 import os
 from enum import Enum
@@ -50,32 +51,28 @@ def _check_openshell_available() -> bool:
     """Check if NVIDIA OpenShell security layer is available.
 
     OpenShell provides sandboxed execution with filesystem, network,
-    and process constraints. For single-agent deployments policies are
-    applied at container start via Kubernetes / Docker.
-
-    This checks for:
-
-    1. The ``openshell`` Python SDK (``pip install openshell``)
-    2. Environment variables injected by the OpenShell runtime
+    and process constraints when the process is launched through an OpenShell
+    sandbox. This helper checks for either the OpenShell CLI/client package or
+    specific sandbox runtime markers. Generic ``OPENSHELL_*`` configuration
+    variables such as policy paths are intentionally ignored because mounting
+    a policy file into a normal Kubernetes Deployment does not activate
+    OpenShell isolation.
 
     Returns:
-        True if OpenShell sandbox environment is detected.
+        True if the OpenShell client package or sandbox runtime markers exist.
     """
     # Check for OpenShell Python SDK
     try:
-        import openshell
+        __import__("openshell")
         return True
     except ImportError:
         pass
 
-    # Check for OpenShell runtime environment variables
-    if os.environ.get("OPENSHELL_SANDBOX_NAME"):
+    # Check for known OpenShell sandbox runtime environment variables. Do not
+    # treat OPENSHELL_POLICY_PATH/OPENSHELL_POLICY_DIR as proof of isolation.
+    sandbox_markers = ("OPENSHELL_SANDBOX_NAME", "OPENSHELL_SANDBOX_ID")
+    if any(os.environ.get(name) for name in sandbox_markers):
         return True
-
-    # Broad check for any OpenShell-prefixed env var
-    for key in os.environ:
-        if key.startswith("OPENSHELL_") or key.startswith("NVIDIA_OPENSHELL_"):
-            return True
 
     return False
 
@@ -83,8 +80,8 @@ def _check_openshell_available() -> bool:
 class SandboxManager:
     """Manages OpenShell sandbox lifecycle.
 
-    For a single-agent deployment, Kubernetes manages the overall
-    container lifecycle; Gateway is not needed.
+    Kubernetes manages this application's pod lifecycle. OpenShell-managed
+    sandbox lifecycle requires an OpenShell gateway/control plane.
     """
 
     def __init__(self, config: Optional[SandboxConfig] = None):
@@ -244,7 +241,8 @@ def get_sandbox_manager() -> SandboxManager:
         logger.warning(
             "NVIDIA OpenShell not available. "
             "Running in development mode without sandbox isolation. "
-            "For production, install OpenShell: pip install 'anytype-agent[openshell]'")
+            "For production sandboxing, run the workload through an OpenShell gateway "
+            "(Kubernetes: official OpenShell Helm chart plus Agent Sandbox controller).")
         _sandbox_manager = DevSandboxManager()
 
     return _sandbox_manager

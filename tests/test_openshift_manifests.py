@@ -50,8 +50,8 @@ def test_kustomization_references_all_phase_6_resources():
     }
 
 
-def test_deployment_mounts_openshell_policy_and_uses_health_probes():
-    """Deployment should mount policy ConfigMap and expose app health endpoints."""
+def test_deployment_uses_health_probes_without_claiming_openshell_runtime():
+    """Deployment should expose health endpoints without fake OpenShell runtime config."""
     deployment = load_yaml(MANIFESTS / "deployment.yaml")
     assert deployment["kind"] == "Deployment"
     assert deployment["metadata"]["namespace"] == "anytype"
@@ -74,18 +74,10 @@ def test_deployment_mounts_openshell_policy_and_uses_health_probes():
     assert container["securityContext"]["allowPrivilegeEscalation"] is False
     assert "ALL" in container["securityContext"]["capabilities"]["drop"]
 
-    mounts = {mount["name"]: mount for mount in container["volumeMounts"]}
-    assert mounts["openshell-policy"]["mountPath"] == "/etc/openshell/policies"
-    assert mounts["openshell-policy"]["readOnly"] is True
-
-    volumes = {volume["name"]: volume for volume in pod_spec["volumes"]}
-    policy_volume = volumes["openshell-policy"]["configMap"]
-    assert policy_volume["name"] == "anytype-agent-policy"
-    assert {item["key"] for item in policy_volume["items"]} == {
-        "sandbox-policy.yaml",
-        "inference-policy.yaml",
-        "provider.yaml",
-    }
+    assert "volumeMounts" not in container
+    assert "volumes" not in pod_spec
+    env_names = {entry["name"] for entry in container.get("env", [])}
+    assert "OPENSHELL_POLICY_DIR" not in env_names
 
 
 def test_policy_configmap_contains_expected_openshell_policies():

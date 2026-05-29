@@ -28,7 +28,7 @@ dev = [
     "pyyaml>=6.0.0",
 ]
 openshell = [
-    "openshell>=0.0.47",
+    "openshell>=0.0.51",
 ]
 
 [build-system]

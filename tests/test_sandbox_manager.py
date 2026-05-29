@@ -27,12 +27,15 @@ class TestCheckOpenshellAvailable:
         with patch.dict("os.environ", {"OPENSHELL_SANDBOX_NAME": "test"}, clear=True):
             assert _check_openshell_available() is True
 
-    def test_prefixed_env_var_detected(self):
-        """Should return True when any OPENSHELL_ or NVIDIA_OPENSHELL_ env var exists."""
-        with patch.dict("os.environ", {"OPENSHELL_FOO": "bar"}, clear=True):
-            assert _check_openshell_available() is True
+    def test_policy_path_env_var_is_not_runtime_detection(self):
+        """Policy path config alone should not be treated as active isolation."""
+        with patch.dict("os.environ", {"OPENSHELL_POLICY_PATH": "/etc/openshell/policy.yaml"}, clear=True):
+            with patch("builtins.__import__", side_effect=ImportError):
+                assert _check_openshell_available() is False
 
-        with patch.dict("os.environ", {"NVIDIA_OPENSHELL_BAR": "baz"}, clear=True):
+    def test_sandbox_id_env_var_detected(self):
+        """Should return True when a known sandbox runtime marker exists."""
+        with patch.dict("os.environ", {"OPENSHELL_SANDBOX_ID": "sandbox-1"}, clear=True):
             assert _check_openshell_available() is True
 
 

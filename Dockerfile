@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -19,6 +19,9 @@ COPY src ./src
 
 # Optional extras can be enabled by the builder, for example:
 #   docker build --build-arg INSTALL_EXTRAS=openshell -t anytype-agent:openshell .
+# NVIDIA OpenShell's PyPI package currently requires Python >=3.12 and installs
+# the CLI/client package only; Kubernetes sandboxing still requires the official
+# OpenShell gateway Helm chart and Agent Sandbox controller. See docs/container.md.
 # The default image installs only the declared production dependencies.
 ARG INSTALL_EXTRAS=""
 RUN python -m pip install --upgrade pip \
@@ -28,7 +31,7 @@ RUN python -m pip install --upgrade pip \
         python -m pip wheel --wheel-dir /wheels .; \
     fi
 
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

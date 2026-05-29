@@ -43,7 +43,8 @@ spec:
         - protocol: TCP
           port: 31012
     # Public LLM APIs. Kubernetes NetworkPolicy cannot restrict by FQDN;
-    # OpenShell policy narrows this egress to approved providers.
+    # use an egress proxy/service mesh or an OpenShell-created sandbox if
+    # provider-level FQDN enforcement is required.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

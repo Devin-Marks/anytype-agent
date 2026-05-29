@@ -8,8 +8,8 @@ def test_dockerfile_installs_project_and_runs_uvicorn():
     """Dockerfile should build the package and run the FastAPI app on port 8000."""
     dockerfile = (ROOT / "Dockerfile").read_text()
 
-    assert "FROM python:3.11-slim-bookworm AS builder" in dockerfile
-    assert "FROM python:3.11-slim-bookworm AS runtime" in dockerfile
+    assert "FROM python:3.12-slim-bookworm AS builder" in dockerfile
+    assert "FROM python:3.12-slim-bookworm AS runtime" in dockerfile
     assert "COPY pyproject.toml" in dockerfile
     assert "COPY src ./src" in dockerfile
     assert "pip wheel" in dockerfile

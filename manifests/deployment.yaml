@@ -43,13 +43,6 @@ spec:
                 name: anytype-agent-config
             - secretRef:
                 name: anytype-agent-secrets
-          env:
-            - name: OPENSHELL_POLICY_DIR
-              value: /etc/openshell/policies
-          volumeMounts:
-            - name: openshell-policy
-              mountPath: /etc/openshell/policies
-              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -78,14 +71,3 @@ spec:
             capabilities:
               drop:
                 - ALL
-      volumes:
-        - name: openshell-policy
-          configMap:
-            name: anytype-agent-policy
-            items:
-              - key: sandbox-policy.yaml
-                path: sandbox-policy.yaml
-              - key: inference-policy.yaml
-                path: inference-policy.yaml
-              - key: provider.yaml
-                path: provider.yaml
