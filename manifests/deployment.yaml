@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: agent
-          image: ghcr.io/anytype/agent:latest
+          image: ghcr.io/your-org/anytype-agent:latest
           imagePullPolicy: Always
           ports:
             - name: http

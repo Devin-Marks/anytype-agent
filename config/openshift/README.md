@@ -5,7 +5,8 @@ These manifests deploy `anytype-agent` into the `anytype` namespace with OpenShe
 ## Prerequisites
 
 - OpenShift 4.x with `oc` access
-- An image for `ghcr.io/anytype/agent:latest` that includes this application and the OpenShell CLI/runtime used by `src.safety.sandbox_manager`
+- An image for this application, for example the default placeholder `ghcr.io/your-org/anytype-agent:latest`. See `docs/container.md` for build and tag guidance.
+- OpenShell CLI/runtime is optional at image build time. If it is not installed from the declared `openshell` extra, the app starts without sandbox isolation and reports that state from `/health/sandbox`.
 - An `anytype-cli` Service/Pod reachable as `http://anytype-cli:31012` in the `anytype` namespace
 
 ## Configure secrets

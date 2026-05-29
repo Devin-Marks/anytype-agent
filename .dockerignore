@@ -1,0 +1,46 @@
+# VCS and local metadata
+.git
+.gitignore
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.whl
+
+# Local config, credentials, and logs
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.log
+logs/
+
+# Editor/OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Project docs and non-runtime artifacts not needed for image builds
+implementation/
+IMPLEMENTATION_PLAN.md
+langgraph.md
+check-syntax.js
