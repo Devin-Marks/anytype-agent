@@ -129,6 +129,25 @@ def test_service_route_hpa_and_network_policy_target_agent():
     assert set(network_policy["spec"]["policyTypes"]) == {"Ingress", "Egress"}
 
 
+def test_network_policy_excludes_internal_and_metadata_ranges():
+    """Internet egress should not include private, loopback, or metadata addresses."""
+    network_policy = load_yaml(MANIFESTS / "network-policy.yaml")
+    internet_egress = next(
+        rule
+        for rule in network_policy["spec"]["egress"]
+        if rule.get("to", [{}])[0].get("ipBlock", {}).get("cidr") == "0.0.0.0/0"
+    )
+
+    assert set(internet_egress["to"][0]["ipBlock"]["except"]) >= {
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+    }
+
+
 def test_single_agent_deployment_does_not_configure_openshell_gateway():
     """Phase 6 is single-agent mode and must not deploy or reference a Gateway."""
     for path in YAML_FILES:

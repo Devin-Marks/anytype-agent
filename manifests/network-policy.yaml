@@ -48,9 +48,15 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
+              # RFC1918/internal cluster ranges.
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16
+              # Link-local and other non-public ranges, including cloud metadata APIs.
+              - 0.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
       ports:
         - protocol: TCP
           port: 443
