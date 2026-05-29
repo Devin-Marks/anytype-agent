@@ -1,7 +1,6 @@
 """LLM-based intent parsing node."""
 import json
 import logging
-from typing import Optional
 
 from ...llm import get_router
 from ..state import AgentState
@@ -16,19 +15,18 @@ INTENT_PATTERNS = {
     "delete_page": ["delete page", "remove page"],
     "create_task": ["create task", "new task", "add task"],
     "update_task": ["update task", "edit task", "complete task"],
-    "list_projects": ["list projects", "show projects", "get projects"],
+    "list_projects": ["list projects", "show projects", "show me my projects", "get projects"],
     "search_objects": ["search", "find", "query"],
 }
 
 
 async def parse_intent(state: AgentState) -> dict:
     """Parse user request to determine intent and parameters."""
-    router = get_router()
-    provider = router.get_route("intent")
-
     user_request = state["user_request"]
 
     try:
+        router = get_router()
+        provider = router.get_route("intent")
         messages = [
             {
                 "role": "system",

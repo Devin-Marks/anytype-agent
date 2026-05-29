@@ -1,6 +1,5 @@
 """Response formatting node."""
 import logging
-from typing import Optional
 
 from ...llm import get_router
 from ..state import AgentState
@@ -10,9 +9,6 @@ logger = logging.getLogger(__name__)
 
 async def format_response(state: AgentState) -> dict:
     """Format tool result into user-friendly output."""
-    router = get_router()
-    provider = router.get_route("response")
-
     tool_result = state.get("tool_result")
     tool_error = state.get("tool_error")
     is_error = state.get("is_error", False)
@@ -24,6 +20,9 @@ async def format_response(state: AgentState) -> dict:
         return {"output": "No result available"}
 
     try:
+        router = get_router()
+        provider = router.get_route("response")
+
         messages = [
             {
                 "role": "system",

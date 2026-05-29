@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 
 from ..state import AgentState
+from ..tools.registry import get_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +42,10 @@ async def execute_tool(state: AgentState) -> dict:
             "is_error": True,
         }
 
-    # Import tool registry
+    # Get tool registry lazily enough for tests/callers to patch availability.
     try:
-        from ..tools.registry import get_tool_registry
         registry = get_tool_registry()
-        
+
         try:
             tool = registry.get_tool(tool_name)
             result = await tool.execute_with_validation(**tool_params)
@@ -63,6 +63,6 @@ async def execute_tool(state: AgentState) -> dict:
     except ImportError:
         # Tool registry not available - return error
         return {
-            "tool_error": f"Tool registry not available",
+            "tool_error": "Tool registry not available",
             "is_error": True,
         }

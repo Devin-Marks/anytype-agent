@@ -2,7 +2,9 @@
 from typing import Optional, Dict, List
 from dataclasses import dataclass
 
+from ..config import get_settings
 from .base import BaseLLMProvider, LLMConfig, ProviderType
+from .providers import OpenAIProvider, AnthropicProvider, OllamaProvider
 
 
 @dataclass
@@ -111,7 +113,6 @@ def _setup_default_routes(router: LLMRouter) -> None:
     Respects ``settings.default_provider`` to choose the primary LLM provider.
     Currently supports: openai, anthropic, ollama.
     """
-    from ..config import get_settings
     settings = get_settings()
 
     provider_map = {
@@ -160,7 +161,4 @@ def _setup_default_routes(router: LLMRouter) -> None:
         ),
         use_cases=["guardrail", "input_check", "output_check"],
     )
-
-
-# Import providers for factory
-from .providers import OpenAIProvider, AnthropicProvider, OllamaProvider
+    router.set_default("agent")

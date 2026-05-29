@@ -1,5 +1,5 @@
 """Tests for src/graph/state.py."""
-from typing import get_type_hints
+from typing import get_args, get_type_hints
 
 from src.graph.state import AgentState, BlockedState
 
@@ -41,7 +41,9 @@ class TestAgentState:
     def test_space_id_optional(self):
         """space_id should be Optional."""
         hints = get_type_hints(AgentState)
-        assert "Optional" in str(hints["space_id"])
+        space_id_hint = hints["space_id"]
+        assert str in get_args(space_id_hint)
+        assert type(None) in get_args(space_id_hint)
 
 
 class TestBlockedState:

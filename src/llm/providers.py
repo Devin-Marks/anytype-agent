@@ -1,22 +1,37 @@
 """LLM provider implementations."""
-import os
+import inspect
 import json
-from typing import List, Dict, Any, AsyncGenerator, Optional
+import os
+from typing import Any, AsyncGenerator, Dict, List
+
+import httpx
+from openai import AsyncOpenAI
 
 from .base import (
     BaseLLMProvider,
     LLMResponse,
-    LLMConfig,
     ProviderType,
 )
+
+try:  # Anthropic is optional unless that provider is configured.
+    from anthropic import AsyncAnthropic
+except ImportError:  # pragma: no cover - exercised only without optional dependency
+    AsyncAnthropic = None
+
+
+async def _read_ollama_response(response: Any) -> dict:
+    """Read an Ollama HTTP response from real httpx or test doubles."""
+    response.raise_for_status()
+    data = response.json()
+    if inspect.isawaitable(data):
+        data = await data
+    return data
 
 
 class OpenAIProvider(BaseLLMProvider):
     """OpenAI provider implementation."""
 
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
-        from openai import AsyncOpenAI
-
         client = AsyncOpenAI(
             api_key=self.config.api_key or os.getenv("OPENAI_API_KEY"),
             base_url=self.config.base_url,
@@ -44,8 +59,6 @@ class OpenAIProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-        from openai import AsyncOpenAI
-
         client = AsyncOpenAI(
             api_key=self.config.api_key or os.getenv("OPENAI_API_KEY"),
             base_url=self.config.base_url,
@@ -59,12 +72,17 @@ class OpenAIProvider(BaseLLMProvider):
             stream=True,
         )
 
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        iterator = stream.__aiter__()
+        if hasattr(iterator, "__anext__"):
+            async for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        else:
+            for chunk in iterator:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
     async def health_check(self) -> bool:
-        from openai import AsyncOpenAI
         try:
             client = AsyncOpenAI(api_key=self.config.api_key or os.getenv("OPENAI_API_KEY"))
             await client.models.list()
@@ -77,7 +95,8 @@ class AnthropicProvider(BaseLLMProvider):
     """Anthropic Claude provider implementation."""
 
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
-        from anthropic import AsyncAnthropic
+        if AsyncAnthropic is None:
+            raise ImportError("anthropic package is not installed")
 
         client = AsyncAnthropic(
             api_key=self.config.api_key or os.getenv("ANTHROPIC_API_KEY"),
@@ -114,7 +133,8 @@ class AnthropicProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-        from anthropic import AsyncAnthropic
+        if AsyncAnthropic is None:
+            raise ImportError("anthropic package is not installed")
 
         client = AsyncAnthropic(
             api_key=self.config.api_key or os.getenv("ANTHROPIC_API_KEY"),
@@ -141,7 +161,9 @@ class AnthropicProvider(BaseLLMProvider):
                 yield text_stream
 
     async def health_check(self) -> bool:
-        from anthropic import AsyncAnthropic
+        if AsyncAnthropic is None:
+            return False
+
         try:
             client = AsyncAnthropic(api_key=self.config.api_key or os.getenv("ANTHROPIC_API_KEY"))
             await client.messages.list(limit=1)
@@ -154,11 +176,10 @@ class OllamaProvider(BaseLLMProvider):
     """Ollama local provider implementation."""
 
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
-        import httpx
-
         base_url = self.config.base_url or "http://localhost:11434"
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
+        client = httpx.AsyncClient()
+        try:
+            response_or_cm = client.post(
                 f"{base_url}/api/chat",
                 json={
                     "model": self.config.model,
@@ -168,25 +189,32 @@ class OllamaProvider(BaseLLMProvider):
                 },
                 timeout=self.config.timeout,
             )
-            response.raise_for_status()
-            data = response.json()
+            if hasattr(response_or_cm, "__aenter__"):
+                async with response_or_cm as response:
+                    data = await _read_ollama_response(response)
+            else:
+                response = await response_or_cm
+                data = await _read_ollama_response(response)
+        finally:
+            close_result = client.aclose()
+            if inspect.isawaitable(close_result):
+                await close_result
 
-            return LLMResponse(
-                content=data["message"]["content"],
-                model=data["model"],
-                provider=ProviderType.OLLAMA,
-                usage={
-                    "prompt_tokens": data.get("prompt_eval_count", 0),
-                    "completion_tokens": data.get("eval_count", 0),
-                },
-                finish_reason=data.get("done_reason"),
-            )
+        return LLMResponse(
+            content=data["message"]["content"],
+            model=data["model"],
+            provider=ProviderType.OLLAMA,
+            usage={
+                "prompt_tokens": data.get("prompt_eval_count", 0),
+                "completion_tokens": data.get("eval_count", 0),
+            },
+            finish_reason=data.get("done_reason"),
+        )
 
     async def stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-        import httpx
-
         base_url = self.config.base_url or "http://localhost:11434"
-        async with httpx.AsyncClient() as client:
+        client = httpx.AsyncClient()
+        try:
             async with client.stream(
                 "POST",
                 f"{base_url}/api/chat",
@@ -202,13 +230,25 @@ class OllamaProvider(BaseLLMProvider):
                         data = json.loads(line)
                         if "message" in data and "content" in data["message"]:
                             yield data["message"]["content"]
+        finally:
+            close_result = client.aclose()
+            if inspect.isawaitable(close_result):
+                await close_result
 
     async def health_check(self) -> bool:
-        import httpx
         try:
             base_url = self.config.base_url or "http://localhost:11434"
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{base_url}/api/tags")
+            client = httpx.AsyncClient()
+            try:
+                response_or_cm = client.get(f"{base_url}/api/tags")
+                if hasattr(response_or_cm, "__aenter__"):
+                    async with response_or_cm as response:
+                        return response.status_code == 200
+                response = await response_or_cm
                 return response.status_code == 200
+            finally:
+                close_result = client.aclose()
+                if inspect.isawaitable(close_result):
+                    await close_result
         except Exception:
             return False
