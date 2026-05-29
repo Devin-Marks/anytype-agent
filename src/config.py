@@ -2,7 +2,7 @@
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     # Anytype API
@@ -28,29 +29,61 @@ class Settings(BaseSettings):
         description="Anytype API version",
     )
 
-    # LLM Configuration
-    openai_api_key: str = Field(
-        description="OpenAI API key",
+    # Generic LLM configuration. Prefer these names for new deployments.
+    llm_provider: str = Field(
+        default="openai",
+        validation_alias=AliasChoices("LLM_PROVIDER", "DEFAULT_PROVIDER", "llm_provider", "default_provider"),
+        description="Default LLM provider (openai, anthropic, ollama)",
     )
-    model: str = Field(
+    llm_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_BASE_URL", "llm_base_url"),
+        description="OpenAI-compatible or provider endpoint URL",
+    )
+    llm_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_API_KEY", "llm_api_key"),
+        description="API key for the configured LLM endpoint, if required",
+    )
+    llm_model: str = Field(
         default="gpt-4o",
+        validation_alias=AliasChoices("LLM_MODEL", "MODEL", "llm_model", "model"),
         description="LLM model for agent",
     )
-    guardrail_model: str = Field(
-        default="gpt-4o-mini",
-        description="LLM model for guardrail checks",
+
+    # Guardrail LLM configuration. Unset values inherit the main LLM settings.
+    guardrail_llm_provider: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GUARDRAIL_LLM_PROVIDER", "guardrail_llm_provider"),
+        description="Provider for guardrail checks; defaults to LLM_PROVIDER",
     )
-    default_provider: str = Field(
-        default="openai",
-        description="Default LLM provider (openai, anthropic, ollama)",
+    guardrail_llm_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GUARDRAIL_LLM_BASE_URL", "guardrail_llm_base_url"),
+        description="Endpoint URL for guardrail checks; defaults to LLM_BASE_URL",
+    )
+    guardrail_llm_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GUARDRAIL_LLM_API_KEY", "guardrail_llm_api_key"),
+        description="API key for guardrail checks; defaults to LLM_API_KEY",
+    )
+    guardrail_model: Optional[str] = Field(
+        default=None,
+        description="LLM model for guardrail checks; defaults to LLM_MODEL",
+    )
+
+    # Legacy/provider-specific settings. Kept for backward compatibility.
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="Legacy OpenAI API key; prefer LLM_API_KEY",
     )
     anthropic_api_key: Optional[str] = Field(
         default=None,
-        description="Anthropic API key for Claude",
+        description="Legacy Anthropic API key; prefer LLM_API_KEY with LLM_PROVIDER=anthropic",
     )
     ollama_base_url: Optional[str] = Field(
         default=None,
-        description="Base URL for Ollama (e.g., http://localhost:11434)",
+        description="Legacy Ollama base URL; prefer LLM_BASE_URL with LLM_PROVIDER=ollama",
     )
 
     # Guardrails
@@ -73,6 +106,16 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
     log_level: str = Field(default="INFO")
+
+    @property
+    def model(self) -> str:
+        """Backward-compatible alias for llm_model."""
+        return self.llm_model
+
+    @property
+    def default_provider(self) -> str:
+        """Backward-compatible alias for llm_provider."""
+        return self.llm_provider
 
 
 @lru_cache

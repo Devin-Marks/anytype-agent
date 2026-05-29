@@ -8,11 +8,12 @@ providers:
     inject_env: true
     # Actual value set via openshell CLI or secrets manager
 
-  - name: openai
+  - name: llm
     type: api_key
     inject_env: true
-    # ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+    # Prefer LLM_API_KEY for hosted providers. Local providers may not need a key.
 
-  - name: anthropic
+  - name: guardrail-llm
     type: api_key
     inject_env: true
+    # Optional GUARDRAIL_LLM_API_KEY when guardrails use a separate credential.

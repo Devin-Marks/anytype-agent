@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 
 from src.graph.state import AgentState
+from src.graph.nodes import guardrails as guardrails_module
 from src.graph.nodes.guardrails import (
     input_guardrail,
     output_guardrail,
@@ -33,6 +34,27 @@ class TestIsRefusal:
 
     def test_empty(self):
         assert _is_refusal({"content": ""}) is False
+
+
+class TestGetRails:
+    """Tests for NeMo rails initialization."""
+
+    def test_uses_top_level_settings_import(self, mock_settings):
+        mock_settings.guardrails_config_path = "/custom/guardrails"
+        mock_rails = MagicMock()
+        mock_config = MagicMock()
+
+        with patch("src.graph.nodes.guardrails.NEMO_AVAILABLE", True):
+            with patch("src.graph.nodes.guardrails.RailsConfig") as rails_config:
+                with patch("src.graph.nodes.guardrails.LLMRails", return_value=mock_rails) as llm_rails:
+                    with patch("src.config.get_settings", return_value=mock_settings):
+                        guardrails_module._rails = None
+                        rails_config.from_path.return_value = mock_config
+                        assert guardrails_module.get_rails() is mock_rails
+
+        rails_config.from_path.assert_called_once_with("/custom/guardrails")
+        llm_rails.assert_called_once_with(mock_config)
+        guardrails_module._rails = None
 
 
 class TestInputGuardrail:

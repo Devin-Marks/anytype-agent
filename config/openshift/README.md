@@ -43,10 +43,17 @@ Because that disables the chart PKI job and TLS, use it only for evaluation on a
 Edit `config/openshift/secrets.yaml` before applying:
 
 - `ANYTYPE_API_KEY`
-- `OPENAI_API_KEY`
-- optional `ANTHROPIC_API_KEY`
+- `LLM_API_KEY` for hosted providers that require a key. For local/keyless endpoints such as Ollama, leave it empty and set `LLM_PROVIDER`/`LLM_BASE_URL` in `app-configmap.yaml`.
+- optional `GUARDRAIL_LLM_API_KEY` when guardrails should use a different key from the main LLM.
 
-Do not commit real secret values.
+Prefer these generic app settings in `app-configmap.yaml`:
+
+- `LLM_PROVIDER` (`openai` for OpenAI-compatible chat completions, `anthropic`, or `ollama`)
+- `LLM_BASE_URL`
+- `LLM_MODEL`
+- optional `GUARDRAIL_LLM_PROVIDER`, `GUARDRAIL_LLM_BASE_URL`, and `GUARDRAIL_MODEL`
+
+Legacy `DEFAULT_PROVIDER`, `MODEL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `OLLAMA_BASE_URL` are still recognized for compatibility, but new deployments should use the generic names above. Do not commit real secret values.
 
 ## Deploy this app
 

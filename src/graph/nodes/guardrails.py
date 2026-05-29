@@ -34,7 +34,7 @@ def get_rails() -> Optional["LLMRails"]:
         return None
     
     if _rails is None:
-        from ..config import get_settings
+        from ...config import get_settings
         settings = get_settings()
         config = RailsConfig.from_path(settings.guardrails_config_path)
         _rails = LLMRails(config)

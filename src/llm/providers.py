@@ -29,11 +29,20 @@ async def _read_ollama_response(response: Any) -> dict:
 
 
 class OpenAIProvider(BaseLLMProvider):
-    """OpenAI provider implementation."""
+    """OpenAI-compatible chat completions provider implementation."""
+
+    def _api_key(self) -> str | None:
+        """Return configured API key, allowing local endpoints without real keys."""
+        key = self.config.api_key or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if key:
+            return key
+        if self.config.base_url:
+            return "not-needed"
+        return None
 
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
         client = AsyncOpenAI(
-            api_key=self.config.api_key or os.getenv("OPENAI_API_KEY"),
+            api_key=self._api_key(),
             base_url=self.config.base_url,
         )
 
@@ -60,7 +69,7 @@ class OpenAIProvider(BaseLLMProvider):
 
     async def stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         client = AsyncOpenAI(
-            api_key=self.config.api_key or os.getenv("OPENAI_API_KEY"),
+            api_key=self._api_key(),
             base_url=self.config.base_url,
         )
 
@@ -84,7 +93,10 @@ class OpenAIProvider(BaseLLMProvider):
 
     async def health_check(self) -> bool:
         try:
-            client = AsyncOpenAI(api_key=self.config.api_key or os.getenv("OPENAI_API_KEY"))
+            client = AsyncOpenAI(
+                api_key=self._api_key(),
+                base_url=self.config.base_url,
+            )
             await client.models.list()
             return True
         except Exception:
@@ -94,13 +106,15 @@ class OpenAIProvider(BaseLLMProvider):
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic Claude provider implementation."""
 
+    def _api_key(self) -> str | None:
+        """Return configured API key with generic and legacy env fallback."""
+        return self.config.api_key or os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
         if AsyncAnthropic is None:
             raise ImportError("anthropic package is not installed")
 
-        client = AsyncAnthropic(
-            api_key=self.config.api_key or os.getenv("ANTHROPIC_API_KEY"),
-        )
+        client = AsyncAnthropic(api_key=self._api_key())
 
         system = ""
         anthropic_messages = []
@@ -136,9 +150,7 @@ class AnthropicProvider(BaseLLMProvider):
         if AsyncAnthropic is None:
             raise ImportError("anthropic package is not installed")
 
-        client = AsyncAnthropic(
-            api_key=self.config.api_key or os.getenv("ANTHROPIC_API_KEY"),
-        )
+        client = AsyncAnthropic(api_key=self._api_key())
 
         system = ""
         anthropic_messages = []
@@ -165,7 +177,7 @@ class AnthropicProvider(BaseLLMProvider):
             return False
 
         try:
-            client = AsyncAnthropic(api_key=self.config.api_key or os.getenv("ANTHROPIC_API_KEY"))
+            client = AsyncAnthropic(api_key=self._api_key())
             await client.messages.list(limit=1)
             return True
         except Exception:

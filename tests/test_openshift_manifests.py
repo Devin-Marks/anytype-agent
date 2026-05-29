@@ -80,6 +80,23 @@ def test_deployment_uses_health_probes_without_claiming_openshell_runtime():
     assert "OPENSHELL_POLICY_DIR" not in env_names
 
 
+def test_app_config_and_secrets_prefer_generic_llm_env_names():
+    """App config should prefer Kubernetes-friendly generic LLM settings."""
+    configmap = load_yaml(OPENSHIFT_CONFIG / "app-configmap.yaml")
+    secret = load_yaml(OPENSHIFT_CONFIG / "secrets.yaml")
+
+    data = configmap["data"]
+    assert {"LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL"} <= set(data)
+    assert {"GUARDRAIL_LLM_PROVIDER", "GUARDRAIL_LLM_BASE_URL", "GUARDRAIL_MODEL"} <= set(data)
+    assert "DEFAULT_PROVIDER" not in data
+    assert "MODEL" not in data
+
+    secret_data = secret["stringData"]
+    assert {"ANYTYPE_API_KEY", "LLM_API_KEY", "GUARDRAIL_LLM_API_KEY"} <= set(secret_data)
+    assert "OPENAI_API_KEY" not in secret_data
+    assert "ANTHROPIC_API_KEY" not in secret_data
+
+
 def test_policy_configmap_contains_expected_openshell_policies():
     """OpenShell policy ConfigMap should enforce filesystem, network, and process rules."""
     configmap = load_yaml(OPENSHIFT_CONFIG / "agent-policy-configmap.yaml")
@@ -99,7 +116,7 @@ def test_policy_configmap_contains_expected_openshell_policies():
     }
     assert "sudo" in sandbox_policy["process"]["blocked"]
     assert inference_policy["inference"]["privacy"]["strip_credentials"] is True
-    assert {provider["name"] for provider in provider_policy["providers"]} >= {"anytype", "openai"}
+    assert {provider["name"] for provider in provider_policy["providers"]} >= {"anytype", "llm"}
 
 
 def test_service_route_hpa_and_network_policy_target_agent():

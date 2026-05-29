@@ -1,15 +1,16 @@
 """LLM router for multi-model routing."""
-from typing import Optional, Dict, List
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 from ..config import get_settings
 from .base import BaseLLMProvider, LLMConfig, ProviderType
-from .providers import OpenAIProvider, AnthropicProvider, OllamaProvider
+from .providers import AnthropicProvider, OllamaProvider, OpenAIProvider
 
 
 @dataclass
 class ModelRoute:
     """Route configuration for a model."""
+
     name: str
     provider: BaseLLMProvider
     use_cases: List[str]
@@ -90,15 +91,8 @@ def get_router() -> LLMRouter:
     """Get global LLM router.
 
     Returns a pre-configured router with default routes:
-    - "agent": Main agent model (OpenAI)
-    - "guardrail": Guardrail model (OpenAI mini)
-
-    Usage:
-        from src.llm import get_router
-
-        router = get_router()
-        provider = router.get_route("agent")  # or router.get_route("guardrail")
-        response = await provider.complete(messages)
+    - "agent": Main agent model
+    - "guardrail": Guardrail model
     """
     global _router
     if _router is None:
@@ -107,57 +101,81 @@ def get_router() -> LLMRouter:
     return _router
 
 
-def _setup_default_routes(router: LLMRouter) -> None:
-    """Setup default routes from environment/config.
-    
-    Respects ``settings.default_provider`` to choose the primary LLM provider.
-    Currently supports: openai, anthropic, ollama.
-    """
-    settings = get_settings()
-
+def _provider_type(provider: Optional[str]) -> ProviderType:
+    """Map provider name to ProviderType, defaulting to OpenAI-compatible."""
     provider_map = {
         "openai": ProviderType.OPENAI,
+        "openai-compatible": ProviderType.OPENAI,
         "anthropic": ProviderType.ANTHROPIC,
         "ollama": ProviderType.OLLAMA,
     }
-    default_provider = provider_map.get(
-        settings.default_provider.lower(),
-        ProviderType.OPENAI,
-    )
+    return provider_map.get((provider or "openai").lower(), ProviderType.OPENAI)
 
-    # Determine the right API key / base_url for the chosen provider
-    if default_provider == ProviderType.OPENAI:
-        api_key = settings.openai_api_key
-        base_url = None
-    elif default_provider == ProviderType.ANTHROPIC:
-        api_key = settings.anthropic_api_key or settings.openai_api_key
-        base_url = None
-    elif default_provider == ProviderType.OLLAMA:
-        api_key = None
-        base_url = settings.ollama_base_url
-    else:
-        api_key = settings.openai_api_key
-        base_url = None
 
-    # Main agent model (expensive)
+def _api_key_for_provider(provider: ProviderType, settings, explicit_key: Optional[str]) -> Optional[str]:
+    """Resolve API key from generic config first, then legacy provider keys."""
+    if provider == ProviderType.OLLAMA:
+        return None
+    if explicit_key:
+        return explicit_key
+    if provider == ProviderType.ANTHROPIC:
+        return settings.anthropic_api_key
+    return settings.openai_api_key
+
+
+def _base_url_for_provider(provider: ProviderType, settings, explicit_base_url: Optional[str]) -> Optional[str]:
+    """Resolve base URL from generic config first, then legacy provider URLs."""
+    if explicit_base_url:
+        return explicit_base_url
+    if provider == ProviderType.OLLAMA:
+        return settings.ollama_base_url
+    return None
+
+
+def _setup_default_routes(router: LLMRouter) -> None:
+    """Setup default routes from generic and legacy environment/config.
+
+    New deployments should use LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY,
+    LLM_MODEL and optional GUARDRAIL_LLM_* overrides. Legacy DEFAULT_PROVIDER,
+    MODEL, OPENAI_API_KEY, ANTHROPIC_API_KEY, and OLLAMA_BASE_URL remain
+    supported where practical.
+    """
+    settings = get_settings()
+
+    default_provider = _provider_type(settings.llm_provider)
+    api_key = _api_key_for_provider(default_provider, settings, settings.llm_api_key)
+    base_url = _base_url_for_provider(default_provider, settings, settings.llm_base_url)
+
     router.register_route(
         "agent",
         LLMConfig(
             provider=default_provider,
-            model=settings.model,
+            model=settings.llm_model,
             api_key=api_key,
             base_url=base_url,
         ),
         use_cases=["agent", "intent", "response"],
     )
 
-    # Guardrail model (cheap/fast) – always use OpenAI for reliability
+    guardrail_provider = _provider_type(settings.guardrail_llm_provider or settings.llm_provider)
+    guardrail_key = _api_key_for_provider(
+        guardrail_provider,
+        settings,
+        settings.guardrail_llm_api_key or settings.llm_api_key,
+    )
+    guardrail_base_url = _base_url_for_provider(
+        guardrail_provider,
+        settings,
+        settings.guardrail_llm_base_url or settings.llm_base_url,
+    )
+
     router.register_route(
         "guardrail",
         LLMConfig(
-            provider=ProviderType.OPENAI,
-            model=settings.guardrail_model,
-            api_key=settings.openai_api_key,
+            provider=guardrail_provider,
+            model=settings.guardrail_model or settings.llm_model,
+            api_key=guardrail_key,
+            base_url=guardrail_base_url,
         ),
         use_cases=["guardrail", "input_check", "output_check"],
     )

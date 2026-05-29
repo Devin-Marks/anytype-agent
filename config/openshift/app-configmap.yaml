@@ -9,8 +9,11 @@ metadata:
 data:
   ANYTYPE_BASE_URL: "http://anytype-cli:31012"
   ANYTYPE_API_VERSION: "2025-11-08"
-  DEFAULT_PROVIDER: "openai"
-  MODEL: "gpt-4o"
+  LLM_PROVIDER: "openai"
+  LLM_BASE_URL: "https://api.openai.com/v1"
+  LLM_MODEL: "gpt-4o"
+  GUARDRAIL_LLM_PROVIDER: "openai"
+  GUARDRAIL_LLM_BASE_URL: "https://api.openai.com/v1"
   GUARDRAIL_MODEL: "gpt-4o-mini"
   GUARDRAILS_CONFIG_PATH: "/etc/guardrails"
   SHELL_PROTECTION_ENABLED: "false"

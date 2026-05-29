@@ -10,7 +10,7 @@ from src.llm.base import (
     ProviderType,
 )
 from src.llm.providers import OpenAIProvider, AnthropicProvider, OllamaProvider
-from src.llm.router import LLMRouter, ModelRoute, get_router, _setup_default_routes
+from src.llm.router import LLMRouter, get_router, _setup_default_routes
 
 
 class TestProviderType:
@@ -90,16 +90,38 @@ class TestOpenAIProvider:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        with patch("src.llm.providers.AsyncOpenAI", return_value=mock_client):
+        with patch("src.llm.providers.AsyncOpenAI", return_value=mock_client) as mock_openai:
             provider = OpenAIProvider(
                 LLMConfig(provider=ProviderType.OPENAI, model="gpt-4", api_key="test-key")
             )
             result = await provider.complete([{"role": "user", "content": "hi"}])
 
+        mock_openai.assert_called_once_with(api_key="test-key", base_url=None)
         assert result.content == "Hello"
         assert result.model == "gpt-4"
         assert result.provider == ProviderType.OPENAI
         assert result.usage["total_tokens"] == 15
+
+    @pytest.mark.asyncio
+    async def test_local_openai_compatible_endpoint_can_be_keyless(self):
+        mock_client = MagicMock()
+        mock_client.models.list = AsyncMock()
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("src.llm.providers.AsyncOpenAI", return_value=mock_client) as mock_openai:
+                provider = OpenAIProvider(
+                    LLMConfig(
+                        provider=ProviderType.OPENAI,
+                        model="local-model",
+                        base_url="http://vllm:8000/v1",
+                    )
+                )
+                assert await provider.health_check() is True
+
+        mock_openai.assert_called_once_with(
+            api_key="not-needed",
+            base_url="http://vllm:8000/v1",
+        )
 
     @pytest.mark.asyncio
     async def test_stream(self):
@@ -329,12 +351,17 @@ class TestGetRouter:
 class TestSetupDefaultRoutes:
     """Tests for _setup_default_routes."""
 
-    def test_openai_default(self):
+    def test_generic_openai_compatible_endpoint(self):
         settings = MagicMock(
-            default_provider="openai",
-            model="gpt-4o",
-            guardrail_model="gpt-4o-mini",
-            openai_api_key="key",
+            llm_provider="openai",
+            llm_base_url="https://llm.example/v1",
+            llm_api_key="generic-key",
+            llm_model="custom-model",
+            guardrail_llm_provider=None,
+            guardrail_llm_base_url=None,
+            guardrail_llm_api_key=None,
+            guardrail_model="guard-model",
+            openai_api_key=None,
             anthropic_api_key=None,
             ollama_base_url=None,
         )
@@ -343,18 +370,56 @@ class TestSetupDefaultRoutes:
         with patch("src.llm.router.get_settings", return_value=settings):
             _setup_default_routes(router)
 
-        assert "agent" in router._routes
-        assert "guardrail" in router._routes
-        # Guardrail always uses OpenAI
-        assert router._routes["guardrail"].provider.config.provider == ProviderType.OPENAI
+        agent = router._routes["agent"].provider.config
+        guardrail = router._routes["guardrail"].provider.config
+        assert agent.provider == ProviderType.OPENAI
+        assert agent.base_url == "https://llm.example/v1"
+        assert agent.api_key == "generic-key"
+        assert agent.model == "custom-model"
+        assert guardrail.provider == ProviderType.OPENAI
+        assert guardrail.base_url == "https://llm.example/v1"
+        assert guardrail.api_key == "generic-key"
+        assert guardrail.model == "guard-model"
 
-    def test_anthropic_provider(self):
+    def test_guardrail_generic_override(self):
         settings = MagicMock(
-            default_provider="anthropic",
-            model="claude-3",
-            guardrail_model="gpt-4o-mini",
-            openai_api_key="openai-key",
-            anthropic_api_key="anthro-key",
+            llm_provider="ollama",
+            llm_base_url="http://ollama:11434",
+            llm_api_key=None,
+            llm_model="llama3",
+            guardrail_llm_provider="openai",
+            guardrail_llm_base_url="https://guard.example/v1",
+            guardrail_llm_api_key="guard-key",
+            guardrail_model="guard-model",
+            openai_api_key=None,
+            anthropic_api_key=None,
+            ollama_base_url=None,
+        )
+        router = LLMRouter()
+
+        with patch("src.llm.router.get_settings", return_value=settings):
+            _setup_default_routes(router)
+
+        agent = router._routes["agent"].provider.config
+        guardrail = router._routes["guardrail"].provider.config
+        assert agent.provider == ProviderType.OLLAMA
+        assert agent.api_key is None
+        assert guardrail.provider == ProviderType.OPENAI
+        assert guardrail.base_url == "https://guard.example/v1"
+        assert guardrail.api_key == "guard-key"
+
+    def test_anthropic_provider_uses_generic_key(self):
+        settings = MagicMock(
+            llm_provider="anthropic",
+            llm_base_url=None,
+            llm_api_key="generic-anthro",
+            llm_model="claude-3",
+            guardrail_llm_provider=None,
+            guardrail_llm_base_url=None,
+            guardrail_llm_api_key=None,
+            guardrail_model="claude-3-haiku",
+            openai_api_key=None,
+            anthropic_api_key="legacy-anthro",
             ollama_base_url=None,
         )
         router = LLMRouter()
@@ -363,16 +428,21 @@ class TestSetupDefaultRoutes:
             _setup_default_routes(router)
 
         assert router._routes["agent"].provider.config.provider == ProviderType.ANTHROPIC
-        assert router._routes["agent"].provider.config.api_key == "anthro-key"
+        assert router._routes["agent"].provider.config.api_key == "generic-anthro"
 
-    def test_ollama_provider(self):
+    def test_ollama_provider_does_not_require_openai_key(self):
         settings = MagicMock(
-            default_provider="ollama",
-            model="llama2",
-            guardrail_model="gpt-4o-mini",
-            openai_api_key="openai-key",
+            llm_provider="ollama",
+            llm_base_url="http://ollama:11434",
+            llm_api_key=None,
+            llm_model="llama2",
+            guardrail_llm_provider=None,
+            guardrail_llm_base_url=None,
+            guardrail_llm_api_key=None,
+            guardrail_model="llama2",
+            openai_api_key=None,
             anthropic_api_key=None,
-            ollama_base_url="http://ollama:11434",
+            ollama_base_url=None,
         )
         router = LLMRouter()
 
@@ -383,12 +453,65 @@ class TestSetupDefaultRoutes:
         assert router._routes["agent"].provider.config.base_url == "http://ollama:11434"
         assert router._routes["agent"].provider.config.api_key is None
 
-    def test_invalid_provider_defaults_to_openai(self):
+    def test_guardrail_model_falls_back_to_llm_model(self):
         settings = MagicMock(
-            default_provider="invalid_provider",
-            model="gpt-4",
+            llm_provider="ollama",
+            llm_base_url="http://ollama:11434",
+            llm_api_key=None,
+            llm_model="llama3",
+            guardrail_llm_provider=None,
+            guardrail_llm_base_url=None,
+            guardrail_llm_api_key=None,
+            guardrail_model=None,
+            openai_api_key=None,
+            anthropic_api_key=None,
+            ollama_base_url=None,
+        )
+        router = LLMRouter()
+
+        with patch("src.llm.router.get_settings", return_value=settings):
+            _setup_default_routes(router)
+
+        guardrail = router._routes["guardrail"].provider.config
+        assert guardrail.provider == ProviderType.OLLAMA
+        assert guardrail.base_url == "http://ollama:11434"
+        assert guardrail.api_key is None
+        assert guardrail.model == "llama3"
+
+    def test_legacy_openai_model_default_provider(self):
+        settings = MagicMock(
+            llm_provider="openai",
+            llm_base_url=None,
+            llm_api_key=None,
+            llm_model="gpt-4",
+            guardrail_llm_provider=None,
+            guardrail_llm_base_url=None,
+            guardrail_llm_api_key=None,
             guardrail_model="gpt-4o-mini",
-            openai_api_key="key",
+            openai_api_key="legacy-openai",
+            anthropic_api_key=None,
+            ollama_base_url=None,
+        )
+        router = LLMRouter()
+
+        with patch("src.llm.router.get_settings", return_value=settings):
+            _setup_default_routes(router)
+
+        assert router._routes["agent"].provider.config.provider == ProviderType.OPENAI
+        assert router._routes["agent"].provider.config.model == "gpt-4"
+        assert router._routes["agent"].provider.config.api_key == "legacy-openai"
+
+    def test_invalid_provider_defaults_to_openai_compatible(self):
+        settings = MagicMock(
+            llm_provider="invalid_provider",
+            llm_base_url="https://llm.example/v1",
+            llm_api_key="key",
+            llm_model="model",
+            guardrail_llm_provider=None,
+            guardrail_llm_base_url=None,
+            guardrail_llm_api_key=None,
+            guardrail_model="guard",
+            openai_api_key=None,
             anthropic_api_key=None,
             ollama_base_url=None,
         )

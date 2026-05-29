@@ -53,8 +53,8 @@ data:
     version: "1.0"
     inference:
       primary:
-        provider: openai
-        model: gpt-4o
+        provider: llm
+        model_env: LLM_MODEL
       privacy:
         strip_credentials: true
         use_sandbox_credentials: true
@@ -68,9 +68,9 @@ data:
       - name: anytype
         type: api_key
         inject_env: true
-      - name: openai
+      - name: llm
         type: api_key
         inject_env: true
-      - name: anthropic
+      - name: guardrail-llm
         type: api_key
         inject_env: true

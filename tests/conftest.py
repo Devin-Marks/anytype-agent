@@ -1,6 +1,6 @@
 """Shared test fixtures and mocks."""
-from unittest.mock import MagicMock, AsyncMock, patch
-from typing import Generator
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 
@@ -15,10 +15,11 @@ def mock_settings():
         anytype_base_url="http://anytype-cli:31012",
         anytype_api_key="test-anytype-key",
         anytype_api_version="2025-11-08",
-        openai_api_key="test-openai-key",
-        model="gpt-4o",
+        llm_provider="openai",
+        llm_api_key="test-llm-key",
+        llm_model="gpt-4o",
         guardrail_model="gpt-4o-mini",
-        default_provider="openai",
+        openai_api_key="test-openai-key",
         anthropic_api_key=None,
         ollama_base_url=None,
         guardrails_config_path="/etc/guardrails",
