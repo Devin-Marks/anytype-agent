@@ -5,7 +5,7 @@ from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .api import StreamingHandler
+from .api import StreamingHandler, a2a_router
 from .schemas import AgentRequest, AgentResponse, StreamEventSchema, StreamResponse
 from .safety import (
     get_sandbox_manager,
@@ -21,8 +21,6 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """"Application lifespan handler."""
     # Startup
-    settings = get_settings()
-    
     # Initialize sandbox manager
     sandbox_mgr = get_sandbox_manager()
     
@@ -118,6 +116,7 @@ async def stream_events(request: Request):
 
 
 app.include_router(streaming_router)
+app.include_router(a2a_router)
 
 
 @app.get("/health")
