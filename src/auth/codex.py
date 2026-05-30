@@ -12,18 +12,17 @@ from pathlib import Path
 import secrets
 import tempfile
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import httpx
 
 CODEX_DEFAULT_AUTH_ISSUER = "https://auth.openai.com"
 CODEX_DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_DEFAULT_REDIRECT_URI = "http://localhost:1455/auth/callback"
-CODEX_DEFAULT_SCOPE = "openid profile email offline_access"
+CODEX_DEFAULT_SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 CODEX_AUTHORIZE_PATH = "/oauth/authorize"
 CODEX_TOKEN_PATH = "/oauth/token"
 APP_STATE_ENV = "ANYTYPE_AGENT_STATE_DIR"
-APP_AUTH_FILE_ENV = "ANYTYPE_AGENT_AUTH_FILE"
 APP_CONTAINER_STATE_DIR = Path("/var/lib/anytype-agent")
 APP_AUTH_RELATIVE_PATH = Path("auth.json")
 PROVIDER_KEY = "openai-codex"
@@ -82,10 +81,7 @@ def default_app_state_dir() -> Path:
 
 
 def app_auth_file() -> Path:
-    """Return Anytype-Agent's unified auth file path."""
-    configured = os.getenv(APP_AUTH_FILE_ENV)
-    if configured:
-        return Path(os.path.expandvars(os.path.expanduser(configured)))
+    """Return Anytype-Agent's unified auth file path under Anytype-owned state."""
     return default_app_state_dir() / APP_AUTH_RELATIVE_PATH
 
 
@@ -100,7 +96,7 @@ def build_authorization_flow(
     client_id: str = CODEX_DEFAULT_CLIENT_ID,
     redirect_uri: str = CODEX_DEFAULT_REDIRECT_URI,
     scope: str = CODEX_DEFAULT_SCOPE,
-    originator: str = "anytype-agent",
+    originator: str = "codex_cli_rs",
 ) -> AuthorizationFlow:
     pkce = generate_pkce()
     state = generate_state()
@@ -116,7 +112,8 @@ def build_authorization_flow(
             "id_token_add_organizations": "true",
             "codex_cli_simplified_flow": "true",
             "originator": originator,
-        }
+        },
+        quote_via=quote,
     )
     return AuthorizationFlow(
         verifier=pkce.verifier,
@@ -126,25 +123,36 @@ def build_authorization_flow(
     )
 
 
-def parse_redirect_url(value: str, *, expected_state: str) -> str:
-    """Extract the authorization code and require matching OAuth state."""
+def parse_redirect_url(
+    value: str,
+    *,
+    expected_state: str,
+    expected_redirect_uri: str = CODEX_DEFAULT_REDIRECT_URI,
+) -> str:
+    """Extract the authorization code and require matching OAuth state/callback."""
     text = value.strip()
     if not text:
         raise CodexLoginError("Missing redirect URL")
 
     parsed = urlparse(text)
-    if parsed.scheme and parsed.netloc:
-        params = parse_qs(parsed.query, keep_blank_values=True)
+    expected = urlparse(expected_redirect_uri)
+    if parsed.scheme or parsed.netloc:
+        if (parsed.scheme, parsed.netloc, parsed.path) != (expected.scheme, expected.netloc, expected.path):
+            raise CodexLoginError("Redirect URL did not match the expected localhost callback")
+        params = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=False)
     else:
-        params = parse_qs(text, keep_blank_values=True)
+        params = parse_qs(text, keep_blank_values=True, strict_parsing=False)
 
-    state = params.get("state", [None])[0]
-    if state != expected_state:
+    error = params.get("error", [None])[0]
+    if error:
+        raise CodexLoginError(f"OpenAI authorization failed: {error}")
+    states = params.get("state", [])
+    if len(states) != 1 or states[0] != expected_state:
         raise CodexLoginError("State mismatch in redirect URL")
-    code = params.get("code", [None])[0]
-    if not code:
-        raise CodexLoginError("Redirect URL did not contain an authorization code")
-    return code
+    codes = params.get("code", [])
+    if len(codes) != 1 or not codes[0]:
+        raise CodexLoginError("Redirect URL did not contain exactly one authorization code")
+    return codes[0]
 
 
 def _token_url(issuer: str) -> str:
@@ -234,11 +242,9 @@ def _with_provider_credentials(existing: dict[str, Any] | None, credentials: dic
     return data
 
 
-def write_credentials(path: Path, credentials: dict[str, Any]) -> None:
-    """Atomically write provider credentials with 0600 permissions where supported."""
+def _atomic_write_auth_file(path: Path, data: dict[str, Any]) -> None:
+    """Atomically write JSON auth data with 0600 file permissions where supported."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = read_credentials(path)
-    data = _with_provider_credentials(existing, credentials)
     tmp_name = ""
     try:
         fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
@@ -249,12 +255,27 @@ def write_credentials(path: Path, credentials: dict[str, Any]) -> None:
             os.fsync(tmp.fileno())
         os.chmod(tmp_name, 0o600)
         os.replace(tmp_name, path)
+        try:
+            dir_fd = os.open(path.parent, os.O_DIRECTORY)
+        except OSError:
+            dir_fd = None
+        if dir_fd is not None:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     finally:
         if tmp_name:
             try:
                 os.unlink(tmp_name)
             except FileNotFoundError:
                 pass
+
+
+def write_credentials(path: Path, credentials: dict[str, Any]) -> None:
+    """Atomically write provider credentials with 0600 permissions where supported."""
+    existing = read_credentials(path)
+    _atomic_write_auth_file(path, _with_provider_credentials(existing, credentials))
 
 
 def read_credentials(path: Path) -> dict[str, Any] | None:
@@ -291,23 +312,7 @@ def remove_provider_credentials(path: Path) -> bool:
 
 
 def write_credentials_file(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_name = ""
-    try:
-        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
-            json.dump(data, tmp, indent=2, sort_keys=True)
-            tmp.write("\n")
-            tmp.flush()
-            os.fsync(tmp.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, path)
-    finally:
-        if tmp_name:
-            try:
-                os.unlink(tmp_name)
-            except FileNotFoundError:
-                pass
+    _atomic_write_auth_file(path, data)
 
 
 async def login_with_manual_redirect(
@@ -325,7 +330,7 @@ async def login_with_manual_redirect(
     output_func("Open this URL in your browser to sign in with ChatGPT Plus/Pro (Codex):")
     output_func(flow.url)
     redirect = input_func("Paste the final redirect URL here: ")
-    code = parse_redirect_url(redirect, expected_state=flow.state)
+    code = parse_redirect_url(redirect, expected_state=flow.state, expected_redirect_uri=redirect_uri)
     token_response = await exchange_authorization_code(
         code,
         flow.verifier,

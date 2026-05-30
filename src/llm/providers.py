@@ -254,9 +254,6 @@ class OpenAICodexProvider(BaseLLMProvider):
         )
 
     def _auth_file(self) -> Path:
-        configured = self.config.extra_params.get("anytype_agent_auth_file") or os.getenv("ANYTYPE_AGENT_AUTH_FILE")
-        if configured:
-            return _expand_auth_path(configured)
         return _default_codex_auth_file()
 
     def _auth_issuer(self) -> str:

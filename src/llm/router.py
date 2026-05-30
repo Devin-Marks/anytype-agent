@@ -159,7 +159,6 @@ def _setup_default_routes(router: LLMRouter) -> None:
             base_url=base_url,
             extra_params=(
                 {
-                    "anytype_agent_auth_file": settings.anytype_agent_auth_file,
                     "codex_base_url": settings.codex_base_url,
                     "codex_auth_issuer": settings.codex_auth_issuer,
                     "codex_client_id": settings.codex_client_id,
@@ -193,7 +192,6 @@ def _setup_default_routes(router: LLMRouter) -> None:
             base_url=guardrail_base_url,
             extra_params=(
                 {
-                    "anytype_agent_auth_file": settings.anytype_agent_auth_file,
                     "codex_base_url": settings.codex_base_url,
                     "codex_auth_issuer": settings.codex_auth_issuer,
                     "codex_client_id": settings.codex_client_id,

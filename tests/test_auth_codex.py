@@ -40,7 +40,7 @@ def test_pkce_generation_and_challenge():
 
 
 def test_auth_url_contains_pi_codex_params():
-    flow = build_authorization_flow(originator="anytype-agent")
+    flow = build_authorization_flow()
     parsed = urlparse(flow.url)
     params = parse_qs(parsed.query)
 
@@ -48,13 +48,14 @@ def test_auth_url_contains_pi_codex_params():
     assert params["response_type"] == ["code"]
     assert params["client_id"] == [CODEX_DEFAULT_CLIENT_ID]
     assert params["redirect_uri"] == [CODEX_DEFAULT_REDIRECT_URI]
-    assert params["scope"] == ["openid profile email offline_access"]
+    assert params["scope"] == ["openid profile email offline_access api.connectors.read api.connectors.invoke"]
+    assert "scope=openid%20profile%20email%20offline_access%20api.connectors.read%20api.connectors.invoke" in flow.url
     assert params["code_challenge"] == [flow.challenge]
     assert params["code_challenge_method"] == ["S256"]
     assert params["state"] == [flow.state]
     assert params["id_token_add_organizations"] == ["true"]
     assert params["codex_cli_simplified_flow"] == ["true"]
-    assert params["originator"] == ["anytype-agent"]
+    assert params["originator"] == ["codex_cli_rs"]
 
 
 def test_redirect_url_parsing_and_bad_state_rejection():
@@ -67,6 +68,15 @@ def test_redirect_url_parsing_and_bad_state_rejection():
 
     with pytest.raises(CodexLoginError, match="State mismatch"):
         parse_redirect_url("code=abc", expected_state="good")
+
+    with pytest.raises(CodexLoginError, match="expected localhost callback"):
+        parse_redirect_url("https://evil.example/callback?code=abc&state=good", expected_state="good")
+
+    with pytest.raises(CodexLoginError, match="exactly one authorization code"):
+        parse_redirect_url("code=abc&code=def&state=good", expected_state="good")
+
+    with pytest.raises(CodexLoginError, match="authorization failed"):
+        parse_redirect_url("error=access_denied&state=good", expected_state="good")
 
 
 @pytest.mark.asyncio
@@ -131,20 +141,17 @@ def test_credential_file_write_perms_and_no_token_logs(tmp_path, capsys):
     assert "secret-refresh" not in output.out + output.err
 
 
-def test_default_auth_file_honors_anytype_state(tmp_path, monkeypatch):
+def test_default_auth_file_honors_anytype_state_only(tmp_path, monkeypatch):
     monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
-    monkeypatch.delenv("ANYTYPE_AGENT_AUTH_FILE", raising=False)
     monkeypatch.setenv("ANYTYPE_AGENT_STATE_DIR", str(tmp_path / "state"))
     assert codex_auth_file() == tmp_path / "state" / "auth.json"
-    monkeypatch.setenv("ANYTYPE_AGENT_AUTH_FILE", str(tmp_path / "internal-auth.json"))
-    assert codex_auth_file() == tmp_path / "internal-auth.json"
 
 
 def test_cli_status_and_logout(tmp_path, capsys):
     auth_file = tmp_path / "auth.json"
     auth_file.write_text(json.dumps({"providers": {"openai-codex": {"access": "token", "refresh": "refresh"}}}))
 
-    with patch.dict("os.environ", {"ANYTYPE_AGENT_AUTH_FILE": str(auth_file)}, clear=False):
+    with patch.dict("os.environ", {"ANYTYPE_AGENT_STATE_DIR": str(tmp_path)}, clear=False):
         assert auth_cli.main(["status", "openai-codex"]) == 0
         status_output = capsys.readouterr().out
         assert "logged in" in status_output
@@ -186,10 +193,13 @@ async def test_provider_refreshes_from_cli_stored_credentials(tmp_path):
         LLMConfig(
             provider=ProviderType.OPENAI_CODEX,
             model="gpt-5-codex",
-            extra_params={"anytype_agent_auth_file": str(auth_file)},
+            extra_params={},
         )
     )
-    with patch("src.llm.providers.httpx.AsyncClient", MockClient):
+    with (
+        patch.dict("os.environ", {"ANYTYPE_AGENT_STATE_DIR": str(tmp_path)}, clear=False),
+        patch("src.llm.providers.httpx.AsyncClient", MockClient),
+    ):
         assert await provider._bearer_token() == "new"
     saved = json.loads(auth_file.read_text())
     provider = saved["providers"]["openai-codex"]

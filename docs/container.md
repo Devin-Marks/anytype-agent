@@ -90,18 +90,15 @@ Anytype-Agent persistent app state defaults to:
 - Local CLI runs: `$XDG_STATE_HOME/anytype-agent` or `~/.local/state/anytype-agent`
 - Override root: `ANYTYPE_AGENT_STATE_DIR=/path/to/state`
 
-The unified Anytype-Agent auth file is `<state-root>/auth.json` (for example `/var/lib/anytype-agent/auth.json`) with provider credentials stored under the `openai-codex` provider key. Internal/test deployments may override the file with `ANYTYPE_AGENT_AUTH_FILE`, but normal deployments should mount the persistent root instead.
+The unified Anytype-Agent auth file is always `<state-root>/auth.json` (for example `/var/lib/anytype-agent/auth.json`) with provider credentials stored under the `openai-codex` provider key. Use `ANYTYPE_AGENT_STATE_DIR` only when the state root must be somewhere other than the default.
 
 Configuration:
 
 ```bash
 LLM_PROVIDER=openai-codex
 LLM_MODEL=gpt-5-codex
-# Optional endpoint/refresh tuning.
-CODEX_BASE_URL=https://chatgpt.com/backend-api/codex/responses
-CODEX_AUTH_ISSUER=https://auth.openai.com
-CODEX_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
-CODEX_REFRESH_SKEW_SECONDS=300
+# Optional only when the writable state root is not the default:
+# ANYTYPE_AGENT_STATE_DIR=/path/to/state
 ```
 
 ### Auth CLI

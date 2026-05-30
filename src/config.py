@@ -87,11 +87,7 @@ class Settings(BaseSettings):
     )
 
     # OpenAI Codex/ChatGPT subscription auth. Only used with LLM_PROVIDER=openai-codex.
-    anytype_agent_auth_file: str = Field(
-        default_factory=lambda: str(Path(_default_app_state_dir()) / "auth.json"),
-        validation_alias=AliasChoices("ANYTYPE_AGENT_AUTH_FILE", "anytype_agent_auth_file"),
-        description="Path to Anytype-Agent's unified persistent auth file",
-    )
+    # Credentials are always read from <Anytype-Agent state root>/auth.json.
     codex_base_url: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("CODEX_BASE_URL", "codex_base_url"),

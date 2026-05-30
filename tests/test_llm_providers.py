@@ -1,6 +1,7 @@
 """Tests for src/llm/ module."""
 import base64
 import json
+import os
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -23,6 +24,15 @@ from src.llm.router import LLMRouter, get_router, _setup_default_routes
 from src.auth.codex import write_credentials as write_codex_credentials
 
 
+@pytest.fixture(autouse=True)
+def _restore_codex_state_env():
+    original = os.environ.get("ANYTYPE_AGENT_STATE_DIR")
+    yield
+    if original is None:
+        os.environ.pop("ANYTYPE_AGENT_STATE_DIR", None)
+    else:
+        os.environ["ANYTYPE_AGENT_STATE_DIR"] = original
+
 
 def _jwt_with_exp(exp: int) -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').decode().rstrip("=")
@@ -30,7 +40,12 @@ def _jwt_with_exp(exp: int) -> str:
     return f"{header}.{payload}.sig"
 
 
+def _point_codex_state_at(path):
+    os.environ["ANYTYPE_AGENT_STATE_DIR"] = str(path.parent)
+
+
 def _write_codex_auth(path, credentials):
+    _point_codex_state_at(path)
     write_codex_credentials(path, credentials)
 
 
@@ -200,7 +215,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -208,11 +223,12 @@ class TestOpenAICodexProvider:
 
     @pytest.mark.asyncio
     async def test_missing_auth_file_error(self, tmp_path):
+        _point_codex_state_at(tmp_path / "missing.json")
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(tmp_path / "missing.json")},
+                extra_params={},
             )
         )
 
@@ -222,12 +238,13 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_malformed_auth_file_error(self, tmp_path):
         auth_file = tmp_path / "auth.json"
+        _point_codex_state_at(auth_file)
         auth_file.write_text("not json")
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -242,7 +259,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -257,7 +274,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -275,7 +292,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -296,7 +313,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -338,7 +355,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -388,7 +405,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file), "codex_refresh_skew_seconds": 40000000000},
+                extra_params={"codex_refresh_skew_seconds": 40000000000},
             )
         )
 
@@ -424,7 +441,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -467,7 +484,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -487,7 +504,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -535,7 +552,7 @@ class TestOpenAICodexProvider:
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
                 base_url="https://codex.example/responses",
-                extra_params={"anytype_agent_auth_file": str(auth_file)},
+                extra_params={},
             )
         )
 
@@ -781,7 +798,6 @@ class TestSetupDefaultRoutes:
             openai_api_key="legacy-openai",
             anthropic_api_key=None,
             ollama_base_url=None,
-            anytype_agent_auth_file="/var/lib/anytype-agent/auth.json",
             codex_base_url="https://codex.example/responses",
         )
         router = LLMRouter()
@@ -793,7 +809,7 @@ class TestSetupDefaultRoutes:
         assert agent.provider == ProviderType.OPENAI_CODEX
         assert agent.api_key is None
         assert agent.base_url == "https://codex.example/responses"
-        assert agent.extra_params["anytype_agent_auth_file"] == "/var/lib/anytype-agent/auth.json"
+        assert "anytype_agent_auth_file" not in agent.extra_params
 
     def test_guardrail_generic_override(self):
         settings = MagicMock(

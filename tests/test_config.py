@@ -25,7 +25,6 @@ class TestSettings:
             assert s.guardrail_llm_base_url is None
             assert s.guardrail_llm_api_key is None
             assert s.guardrail_model is None
-            assert s.anytype_agent_auth_file == "/var/lib/anytype-agent/auth.json"
             assert s.codex_base_url is None
             assert s.codex_auth_issuer is None
             assert s.codex_client_id is None
@@ -53,7 +52,7 @@ class TestSettings:
             "GUARDRAIL_LLM_BASE_URL": "https://guard.example/v1",
             "GUARDRAIL_LLM_API_KEY": "guard-key",
             "GUARDRAIL_MODEL": "guard-model",
-            "ANYTYPE_AGENT_AUTH_FILE": "/custom/anytype-agent/auth.json",
+            "ANYTYPE_AGENT_STATE_DIR": "/custom/anytype-agent",
             "CODEX_BASE_URL": "https://codex.example/responses",
             "CODEX_AUTH_ISSUER": "https://auth.example",
             "CODEX_CLIENT_ID": "client-123",
@@ -78,7 +77,6 @@ class TestSettings:
             assert s.guardrail_llm_base_url == "https://guard.example/v1"
             assert s.guardrail_llm_api_key == "guard-key"
             assert s.guardrail_model == "guard-model"
-            assert s.anytype_agent_auth_file == "/custom/anytype-agent/auth.json"
             assert s.codex_base_url == "https://codex.example/responses"
             assert s.codex_auth_issuer == "https://auth.example"
             assert s.codex_client_id == "client-123"

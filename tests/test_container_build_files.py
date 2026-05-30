@@ -52,6 +52,7 @@ def test_codex_kubernetes_workflow_documented():
     assert "kubectl exec -n anytype" in docs
     assert "CODEX_AUTH_FILE" not in docs
     assert "CODEX_TOKEN_COMMAND" not in docs
+    assert "ANYTYPE_AGENT_AUTH_FILE" not in docs
     assert "codex login" not in docs
     assert "kubectl create secret generic anytype-agent-codex-auth" not in docs
     assert "Never commit `auth.json`" in docs
