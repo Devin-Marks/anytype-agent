@@ -6,8 +6,6 @@ import inspect
 import json
 import os
 from pathlib import Path
-import shlex
-import subprocess
 import tempfile
 from typing import Any, AsyncGenerator, Dict, List
 
@@ -35,6 +33,9 @@ CODEX_DEFAULT_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 CODEX_DEFAULT_AUTH_ISSUER = "https://auth.openai.com"
 CODEX_DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_DEFAULT_REFRESH_SKEW_SECONDS = 300
+CODEX_DEFAULT_AUTH_RELATIVE_PATH = Path("auth.json")
+CODEX_CONTAINER_STATE_DIR = Path("/var/lib/anytype-agent")
+CODEX_PROVIDER_KEY = "openai-codex"
 _CODEX_REFRESH_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -45,6 +46,23 @@ class CodexAuthError(RuntimeError):
 def _expand_auth_path(path: str) -> Path:
     """Expand env/user vars in a Codex auth file path."""
     return Path(os.path.expandvars(os.path.expanduser(path)))
+
+
+def _default_app_state_dir() -> Path:
+    """Return Anytype-Agent's persistent app-state root."""
+    configured = os.getenv("ANYTYPE_AGENT_STATE_DIR")
+    if configured:
+        return _expand_auth_path(configured)
+    if os.getenv("KUBERNETES_SERVICE_HOST") or Path("/.dockerenv").exists():
+        return CODEX_CONTAINER_STATE_DIR
+    xdg_state = os.getenv("XDG_STATE_HOME")
+    if xdg_state:
+        return _expand_auth_path(xdg_state) / "anytype-agent"
+    return Path.home() / ".local" / "state" / "anytype-agent"
+
+
+def _default_codex_auth_file() -> Path:
+    return _default_app_state_dir() / CODEX_DEFAULT_AUTH_RELATIVE_PATH
 
 
 def _parse_expiry(value: Any) -> datetime | None:
@@ -236,15 +254,10 @@ class OpenAICodexProvider(BaseLLMProvider):
         )
 
     def _auth_file(self) -> Path:
-        configured = (
-            self.config.extra_params.get("codex_auth_file")
-            or os.getenv("CODEX_AUTH_FILE")
-            or "/var/lib/anytype-agent/codex/auth.json"
-        )
-        return _expand_auth_path(configured)
-
-    def _token_command(self) -> str | None:
-        return self.config.extra_params.get("codex_token_command") or os.getenv("CODEX_TOKEN_COMMAND")
+        configured = self.config.extra_params.get("anytype_agent_auth_file") or os.getenv("ANYTYPE_AGENT_AUTH_FILE")
+        if configured:
+            return _expand_auth_path(configured)
+        return _default_codex_auth_file()
 
     def _auth_issuer(self) -> str:
         return (
@@ -271,47 +284,11 @@ class OpenAICodexProvider(BaseLLMProvider):
         except (TypeError, ValueError):
             return CODEX_DEFAULT_REFRESH_SKEW_SECONDS
 
-    async def _token_from_command(self, command: str) -> str:
-        def run_command() -> str:
-            try:
-                args = shlex.split(command)
-            except ValueError as exc:
-                raise CodexAuthError("CODEX_TOKEN_COMMAND could not be parsed") from exc
-            if not args:
-                raise CodexAuthError("CODEX_TOKEN_COMMAND is empty")
-
-            try:
-                completed = subprocess.run(
-                    args,
-                    shell=False,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise CodexAuthError("CODEX_TOKEN_COMMAND timed out after 15 seconds") from exc
-            except OSError as exc:
-                raise CodexAuthError(f"CODEX_TOKEN_COMMAND could not be executed: {exc}") from exc
-
-            if completed.returncode != 0:
-                stderr_note = " and wrote to stderr" if completed.stderr.strip() else ""
-                raise CodexAuthError(
-                    f"CODEX_TOKEN_COMMAND failed with exit code {completed.returncode}{stderr_note}"
-                )
-            token = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
-            if not token:
-                stderr_note = "; command wrote to stderr" if completed.stderr.strip() else ""
-                raise CodexAuthError(f"CODEX_TOKEN_COMMAND did not print a bearer token{stderr_note}")
-            return token
-
-        return await asyncio.to_thread(run_command)
-
     def _read_auth_data(self, auth_file: Path) -> Any:
         if not auth_file.exists():
             raise CodexAuthError(
-                f"Codex auth file not found: {auth_file}. Run `codex login --device-auth` "
-                "or mount a Codex auth.json, or configure CODEX_TOKEN_COMMAND."
+                f"Anytype-Agent auth file not found: {auth_file}. Run "
+                "`python -m src.auth login openai-codex` with persistent storage mounted."
             )
         try:
             return json.loads(auth_file.read_text(encoding="utf-8"))
@@ -330,8 +307,8 @@ class OpenAICodexProvider(BaseLLMProvider):
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 response = await client.post(
                     f"{self._auth_issuer()}/oauth/token",
-                    headers={"Content-Type": "application/json"},
-                    json={
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={
                         "grant_type": "refresh_token",
                         "refresh_token": refresh_token,
                         "client_id": self._client_id(),
@@ -405,7 +382,7 @@ class OpenAICodexProvider(BaseLLMProvider):
         except OSError as exc:
             raise CodexAuthError(
                 f"Could not persist refreshed Codex auth file {auth_file}: {exc}. "
-                "If this path is a Kubernetes Secret or other read-only mount, copy auth.json to a writable volume."
+                "Mount /var/lib/anytype-agent from a writable PVC and re-run Anytype-Agent login."
             ) from exc
         finally:
             if tmp_name:
@@ -420,9 +397,15 @@ class OpenAICodexProvider(BaseLLMProvider):
     ) -> tuple[Any, dict[str, Any] | None, str, str | None, datetime | None, bool]:
         """Read auth data and return token state without exposing token values in errors."""
         data = self._read_auth_data(auth_file)
-        record, token, refresh_token, expiry = _codex_token_record(data)
+        provider_data = data.get("providers", {}).get(CODEX_PROVIDER_KEY) if isinstance(data, dict) else None
+        if not isinstance(provider_data, dict):
+            raise CodexAuthError(
+                f"Anytype-Agent auth file does not contain {CODEX_PROVIDER_KEY} credentials: {auth_file}. "
+                "Run `python -m src.auth login openai-codex`."
+            )
+        record, token, refresh_token, expiry = _codex_token_record(provider_data)
         if not token:
-            raise CodexAuthError(f"Codex auth file does not contain an access token: {auth_file}")
+            raise CodexAuthError(f"Codex credential file does not contain an access token: {auth_file}")
         return data, record, token, refresh_token, expiry, self._needs_refresh(expiry)
 
     async def _token_from_auth_file(self, auth_file: Path) -> str:
@@ -441,7 +424,7 @@ class OpenAICodexProvider(BaseLLMProvider):
                 except OSError as exc:
                     raise CodexAuthError(
                         f"Could not create Codex auth lock file {lock_file}: {exc}. "
-                        "If this path is a Kubernetes Secret or other read-only mount, copy auth.json to a writable volume."
+                        "Mount /var/lib/anytype-agent from a writable PVC and re-run Anytype-Agent login."
                     ) from exc
                 if fcntl is not None:
                     await asyncio.to_thread(fcntl.flock, file_handle.fileno(), fcntl.LOCK_EX)
@@ -452,7 +435,7 @@ class OpenAICodexProvider(BaseLLMProvider):
                 if not refresh_token:
                     raise CodexAuthError(
                         f"Codex access token in {auth_file} is expired or near expiry, "
-                        "but no refresh token is available. Re-run Codex login or configure CODEX_TOKEN_COMMAND."
+                        "but no refresh token is available. Re-run `python -m src.auth login openai-codex`."
                     )
                 if record is None:
                     raise CodexAuthError(f"Codex auth file does not contain refreshable token data: {auth_file}")
@@ -468,10 +451,6 @@ class OpenAICodexProvider(BaseLLMProvider):
                         file_handle.close()
 
     async def _bearer_token(self) -> str:
-        token_command = self._token_command()
-        if token_command:
-            return await self._token_from_command(token_command)
-
         return await self._token_from_auth_file(self._auth_file())
 
     def _request_payload(self, messages: List[Dict[str, str]], stream: bool = False) -> dict:

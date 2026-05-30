@@ -55,6 +55,15 @@ Prefer these generic app settings in `app-configmap.yaml`:
 
 Legacy `DEFAULT_PROVIDER`, `MODEL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `OLLAMA_BASE_URL` are still recognized for compatibility, but new deployments should use the generic names above. Do not commit real secret values.
 
+For `LLM_PROVIDER=openai-codex`, Anytype-Agent owns the ChatGPT Plus/Pro login flow. Mount a writable PVC at `/var/lib/anytype-agent`, then run:
+
+```bash
+oc exec -it deploy/anytype-agent -n anytype -c agent -- python -m src.auth login openai-codex
+oc exec -it deploy/anytype-agent -n anytype -c agent -- python -m src.auth status openai-codex
+```
+
+See `docs/container.md` for the full PVC and logout workflow.
+
 ## Deploy this app
 
 ```bash

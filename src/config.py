@@ -1,9 +1,23 @@
 """Configuration loading from environment variables."""
 from functools import lru_cache
+import os
+from pathlib import Path
 from typing import Optional
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_app_state_dir() -> str:
+    configured = os.getenv("ANYTYPE_AGENT_STATE_DIR")
+    if configured:
+        return configured
+    if os.getenv("KUBERNETES_SERVICE_HOST") or Path("/.dockerenv").exists():
+        return "/var/lib/anytype-agent"
+    xdg_state = os.getenv("XDG_STATE_HOME")
+    if xdg_state:
+        return str(Path(xdg_state) / "anytype-agent")
+    return str(Path.home() / ".local" / "state" / "anytype-agent")
 
 
 class Settings(BaseSettings):
@@ -73,15 +87,10 @@ class Settings(BaseSettings):
     )
 
     # OpenAI Codex/ChatGPT subscription auth. Only used with LLM_PROVIDER=openai-codex.
-    codex_auth_file: str = Field(
-        default="/var/lib/anytype-agent/codex/auth.json",
-        validation_alias=AliasChoices("CODEX_AUTH_FILE", "codex_auth_file"),
-        description="Path to Codex CLI OAuth cache auth.json for LLM_PROVIDER=openai-codex",
-    )
-    codex_token_command: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("CODEX_TOKEN_COMMAND", "codex_token_command"),
-        description="Optional command that prints a Codex/ChatGPT bearer token; preferred for external refresh",
+    anytype_agent_auth_file: str = Field(
+        default_factory=lambda: str(Path(_default_app_state_dir()) / "auth.json"),
+        validation_alias=AliasChoices("ANYTYPE_AGENT_AUTH_FILE", "anytype_agent_auth_file"),
+        description="Path to Anytype-Agent's unified persistent auth file",
     )
     codex_base_url: Optional[str] = Field(
         default=None,
@@ -96,7 +105,7 @@ class Settings(BaseSettings):
     codex_client_id: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("CODEX_CLIENT_ID", "codex_client_id"),
-        description="Override Codex OAuth client id; defaults to the Codex CLI/OpenCode client id",
+        description="Override Codex OAuth client id; defaults to Anytype-Agent's Codex OAuth client id",
     )
     codex_refresh_skew_seconds: int = Field(
         default=300,

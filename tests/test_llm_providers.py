@@ -20,12 +20,18 @@ from src.llm.providers import (
     _parse_expiry,
 )
 from src.llm.router import LLMRouter, get_router, _setup_default_routes
+from src.auth.codex import write_credentials as write_codex_credentials
+
 
 
 def _jwt_with_exp(exp: int) -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').decode().rstrip("=")
     payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=")
     return f"{header}.{payload}.sig"
+
+
+def _write_codex_auth(path, credentials):
+    write_codex_credentials(path, credentials)
 
 
 class TestProviderType:
@@ -189,12 +195,12 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_reads_token_from_auth_file(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text('{"tokens":{"access_token":"codex-token"}}')
+        _write_codex_auth(auth_file, {"access": "codex-token"})
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -206,11 +212,11 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(tmp_path / "missing.json")},
+                extra_params={"anytype_agent_auth_file": str(tmp_path / "missing.json")},
             )
         )
 
-        with pytest.raises(CodexAuthError, match="Codex auth file not found"):
+        with pytest.raises(CodexAuthError, match="auth file not found"):
             await provider._bearer_token()
 
     @pytest.mark.asyncio
@@ -221,7 +227,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -231,12 +237,12 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_missing_token_error(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text('{"tokens":{"refresh_token":"refresh-only"}}')
+        _write_codex_auth(auth_file, {"refresh": "refresh-only"})
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -246,12 +252,12 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_ignores_generic_token_field(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text('{"tokens":{"token":"generic-secret"}}')
+        _write_codex_auth(auth_file, {"token": "generic-secret"})
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -261,15 +267,15 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_reads_realistic_nested_access_token(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text(
-            '{"accounts":{"chatgpt":{"tokens":{'
-            '"accessToken":"nested-token","expiresAt":"2999-01-01T00:00:00Z"}}}}'
+        _write_codex_auth(
+            auth_file,
+            {"accounts": {"chatgpt": {"tokens": {"accessToken": "nested-token", "expiresAt": "2999-01-01T00:00:00Z"}}}},
         )
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -285,12 +291,12 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_expired_token_error(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text('{"tokens":{"access_token":"old","expires_at":"2000-01-01T00:00:00Z"}}')
+        _write_codex_auth(auth_file, {"access": "old", "expires": 946684800000})
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -300,19 +306,9 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_expired_token_refresh_success(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text(
-            json.dumps(
-                {
-                    "auth_mode": "chatgpt",
-                    "tokens": {
-                        "access_token": "old-access",
-                        "refresh_token": "old-refresh",
-                        "account_id": "acct",
-                        "expires_at": "2000-01-01T00:00:00Z",
-                    },
-                    "other": {"preserved": True},
-                }
-            )
+        _write_codex_auth(
+            auth_file,
+            {"type": "oauth", "access": "old-access", "refresh": "old-refresh", "expires": 946684800000, "accountId": "acct"},
         )
         captured = {}
 
@@ -332,17 +328,17 @@ class TestOpenAICodexProvider:
             async def __aexit__(self, *args):
                 return False
 
-            async def post(self, url, headers, json):
+            async def post(self, url, headers, data):
                 captured["url"] = url
                 captured["headers"] = headers
-                captured["json"] = json
+                captured["data"] = data
                 return MockResponse()
 
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -350,87 +346,24 @@ class TestOpenAICodexProvider:
             assert await provider._bearer_token() == "new-access"
 
         saved = json.loads(auth_file.read_text())
-        assert saved["tokens"]["access_token"] == "new-access"
-        assert saved["tokens"]["refresh_token"] == "new-refresh"
-        assert saved["tokens"]["account_id"] == "acct"
-        assert saved["other"] == {"preserved": True}
+        provider_record = saved["providers"]["openai-codex"]
+        assert provider_record["access"] == "new-access"
+        assert provider_record["refresh"] == "new-refresh"
+        assert provider_record["accountId"] == "acct"
         assert saved["last_refresh"]
         assert oct(auth_file.stat().st_mode & 0o777) == "0o600"
         assert captured["url"] == "https://auth.openai.com/oauth/token"
-        assert captured["headers"] == {"Content-Type": "application/json"}
-        assert captured["json"] == {
+        assert captured["headers"] == {"Content-Type": "application/x-www-form-urlencoded"}
+        assert captured["data"] == {
             "grant_type": "refresh_token",
             "refresh_token": "old-refresh",
             "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
         }
 
     @pytest.mark.asyncio
-    async def test_opencode_style_auth_refresh_preserves_schema(self, tmp_path):
-        auth_file = tmp_path / "auth.json"
-        auth_file.write_text(
-            json.dumps(
-                {
-                    "type": "oauth",
-                    "access": "old-access",
-                    "refresh": "old-refresh",
-                    "expires": 946684800000,
-                    "accountId": "acct",
-                }
-            )
-        )
-
-        class MockResponse:
-            status_code = 200
-
-            def json(self):
-                return {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}
-
-        class MockClient:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def post(self, *args, **kwargs):
-                return MockResponse()
-
-        provider = OpenAICodexProvider(
-            LLMConfig(
-                provider=ProviderType.OPENAI_CODEX,
-                model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
-            )
-        )
-
-        with patch("src.llm.providers.httpx.AsyncClient", MockClient):
-            assert await provider._bearer_token() == "new-access"
-
-        saved = json.loads(auth_file.read_text())
-        assert saved["access"] == "new-access"
-        assert saved["refresh"] == "new-refresh"
-        assert isinstance(saved["expires"], int)
-        assert "access_token" not in saved
-        assert "refresh_token" not in saved
-        assert saved["accountId"] == "acct"
-
-    @pytest.mark.asyncio
     async def test_near_expiry_token_refreshes(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text(
-            json.dumps(
-                {
-                    "tokens": {
-                        "access_token": _jwt_with_exp(4102444800),
-                        "refresh_token": "refresh",
-                        "expires_at": "2999-01-01T00:03:00Z",
-                    }
-                }
-            )
-        )
+        _write_codex_auth(auth_file, {"access": _jwt_with_exp(4102444800), "refresh": "refresh", "expires": "2999-01-01T00:03:00Z"})
 
         class MockResponse:
             status_code = 200
@@ -455,7 +388,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file), "codex_refresh_skew_seconds": 40000000000},
+                extra_params={"anytype_agent_auth_file": str(auth_file), "codex_refresh_skew_seconds": 40000000000},
             )
         )
 
@@ -465,9 +398,7 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_refresh_failure_does_not_leak_tokens(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text(
-            '{"tokens":{"access_token":"old-secret","refresh_token":"refresh-secret","expires_at":"2000-01-01T00:00:00Z"}}'
-        )
+        _write_codex_auth(auth_file, {"access": "old-secret", "refresh": "refresh-secret", "expires": 946684800000})
 
         class MockResponse:
             status_code = 401
@@ -493,7 +424,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -508,9 +439,7 @@ class TestOpenAICodexProvider:
     @pytest.mark.asyncio
     async def test_read_only_auth_directory_error_mentions_writable_volume(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text(
-            '{"tokens":{"access_token":"old","refresh_token":"refresh","expires_at":"2000-01-01T00:00:00Z"}}'
-        )
+        _write_codex_auth(auth_file, {"access": "old", "refresh": "refresh", "expires": 946684800000})
 
         class MockResponse:
             status_code = 200
@@ -538,7 +467,7 @@ class TestOpenAICodexProvider:
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -548,17 +477,17 @@ class TestOpenAICodexProvider:
             pytest.raises(CodexAuthError) as exc_info,
         ):
             await provider._bearer_token()
-        assert "writable volume" in str(exc_info.value)
+        assert "writable PVC" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_read_only_auth_directory_can_use_fresh_token_without_lock(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text('{"tokens":{"access_token":"fresh-token","expires_at":"2999-01-01T00:00:00Z"}}')
+        _write_codex_auth(auth_file, {"access": "fresh-token", "expires": 32503680000000})
         provider = OpenAICodexProvider(
             LLMConfig(
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -573,57 +502,9 @@ class TestOpenAICodexProvider:
             assert await provider._bearer_token() == "fresh-token"
 
     @pytest.mark.asyncio
-    async def test_token_command_takes_precedence(self, tmp_path):
-        missing_auth = tmp_path / "missing.json"
-        provider = OpenAICodexProvider(
-            LLMConfig(
-                provider=ProviderType.OPENAI_CODEX,
-                model="gpt-5-codex",
-                extra_params={
-                    "codex_auth_file": str(missing_auth),
-                    "codex_token_command": "printf command-token",
-                },
-            )
-        )
-
-        assert await provider._bearer_token() == "command-token"
-
-    @pytest.mark.asyncio
-    async def test_token_command_does_not_use_shell(self, tmp_path):
-        marker = tmp_path / "shell-injection-marker"
-        provider = OpenAICodexProvider(
-            LLMConfig(
-                provider=ProviderType.OPENAI_CODEX,
-                model="gpt-5-codex",
-                extra_params={"codex_token_command": f"printf safe-token; touch {marker}"},
-            )
-        )
-
-        assert await provider._bearer_token() == "safe-token;"
-        assert not marker.exists()
-
-    @pytest.mark.asyncio
-    async def test_token_command_error_does_not_echo_stderr_secret(self):
-        provider = OpenAICodexProvider(
-            LLMConfig(
-                provider=ProviderType.OPENAI_CODEX,
-                model="gpt-5-codex",
-                extra_params={"codex_token_command": "sh -c 'echo secret-token >&2; exit 2'"},
-            )
-        )
-
-        with pytest.raises(CodexAuthError) as exc_info:
-            await provider._bearer_token()
-
-        message = str(exc_info.value)
-        assert "exit code 2" in message
-        assert "wrote to stderr" in message
-        assert "secret-token" not in message
-
-    @pytest.mark.asyncio
     async def test_complete_request_format_and_headers(self, tmp_path):
         auth_file = tmp_path / "auth.json"
-        auth_file.write_text('{"access_token":"codex-token"}')
+        _write_codex_auth(auth_file, {"access": "codex-token"})
         captured = {}
 
         class MockResponse:
@@ -654,7 +535,7 @@ class TestOpenAICodexProvider:
                 provider=ProviderType.OPENAI_CODEX,
                 model="gpt-5-codex",
                 base_url="https://codex.example/responses",
-                extra_params={"codex_auth_file": str(auth_file)},
+                extra_params={"anytype_agent_auth_file": str(auth_file)},
             )
         )
 
@@ -900,8 +781,7 @@ class TestSetupDefaultRoutes:
             openai_api_key="legacy-openai",
             anthropic_api_key=None,
             ollama_base_url=None,
-            codex_auth_file="/var/lib/anytype-agent/codex/auth.json",
-            codex_token_command="print-token",
+            anytype_agent_auth_file="/var/lib/anytype-agent/auth.json",
             codex_base_url="https://codex.example/responses",
         )
         router = LLMRouter()
@@ -913,8 +793,7 @@ class TestSetupDefaultRoutes:
         assert agent.provider == ProviderType.OPENAI_CODEX
         assert agent.api_key is None
         assert agent.base_url == "https://codex.example/responses"
-        assert agent.extra_params["codex_auth_file"] == "/var/lib/anytype-agent/codex/auth.json"
-        assert agent.extra_params["codex_token_command"] == "print-token"
+        assert agent.extra_params["anytype_agent_auth_file"] == "/var/lib/anytype-agent/auth.json"
 
     def test_guardrail_generic_override(self):
         settings = MagicMock(

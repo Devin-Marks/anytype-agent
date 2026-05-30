@@ -45,10 +45,10 @@ COPY --from=builder /wheels /wheels
 
 RUN python -m pip install --no-index --find-links=/wheels anytype-agent \
     && rm -rf /wheels \
-    && mkdir -p /etc/guardrails /etc/openshell/policies /tmp/.cache /tmp/anytype-agent \
+    && mkdir -p /etc/guardrails /etc/openshell/policies /tmp/.cache /tmp/anytype-agent /var/lib/anytype-agent \
     && useradd --uid 10001 --gid 0 --home-dir /tmp --no-create-home --shell /usr/sbin/nologin app \
-    && chown -R 10001:0 /app /etc/guardrails /etc/openshell /tmp/.cache /tmp/anytype-agent \
-    && chmod -R g=u /app /etc/guardrails /etc/openshell /tmp/.cache /tmp/anytype-agent
+    && chown -R 10001:0 /app /etc/guardrails /etc/openshell /tmp/.cache /tmp/anytype-agent /var/lib/anytype-agent \
+    && chmod -R g=u /app /etc/guardrails /etc/openshell /tmp/.cache /tmp/anytype-agent /var/lib/anytype-agent
 
 USER 10001
 

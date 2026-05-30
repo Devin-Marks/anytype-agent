@@ -45,10 +45,13 @@ def test_codex_kubernetes_workflow_documented():
     docs = (ROOT / "docs" / "container.md").read_text()
 
     assert "LLM_PROVIDER=openai-codex" in docs
-    assert "CODEX_AUTH_FILE=/var/lib/anytype-agent/codex/auth.json" in docs
-    assert "CODEX_TOKEN_COMMAND" in docs
+    assert "/var/lib/anytype-agent/auth.json" in docs
+    assert "python -m src.auth login openai-codex" in docs
+    assert "python -m src.auth status openai-codex" in docs
+    assert "python -m src.auth logout openai-codex" in docs
     assert "kubectl exec -n anytype" in docs
-    assert "codex login --device-auth" in docs
-    assert "kubectl create secret generic anytype-agent-codex-auth" in docs
-    assert "does **not** install the Codex CLI" in docs
+    assert "CODEX_AUTH_FILE" not in docs
+    assert "CODEX_TOKEN_COMMAND" not in docs
+    assert "codex login" not in docs
+    assert "kubectl create secret generic anytype-agent-codex-auth" not in docs
     assert "Never commit `auth.json`" in docs

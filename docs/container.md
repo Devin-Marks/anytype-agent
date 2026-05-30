@@ -82,58 +82,57 @@ Do not commit real API keys. The placeholder secret values in `config/openshift/
 
 ## OpenAI Codex/ChatGPT subscription provider auth
 
-`LLM_PROVIDER=openai-codex` enables an explicit, opt-in provider that uses a Codex/ChatGPT subscription bearer token instead of an OpenAI Platform API key. This is separate from `LLM_PROVIDER=openai` and is less stable/official for arbitrary server applications than the public OpenAI API. Keep it isolated to deployments where you accept that risk.
+`LLM_PROVIDER=openai-codex` enables an explicit, opt-in provider that uses ChatGPT Plus/Pro (Codex) OAuth credentials instead of an OpenAI Platform API key. Anytype-Agent owns this flow and supports it only through `python -m src.auth login openai-codex`, `status`, and `logout`.
+
+Anytype-Agent persistent app state defaults to:
+
+- Containers/Kubernetes: `/var/lib/anytype-agent`
+- Local CLI runs: `$XDG_STATE_HOME/anytype-agent` or `~/.local/state/anytype-agent`
+- Override root: `ANYTYPE_AGENT_STATE_DIR=/path/to/state`
+
+The unified Anytype-Agent auth file is `<state-root>/auth.json` (for example `/var/lib/anytype-agent/auth.json`) with provider credentials stored under the `openai-codex` provider key. Internal/test deployments may override the file with `ANYTYPE_AGENT_AUTH_FILE`, but normal deployments should mount the persistent root instead.
 
 Configuration:
 
 ```bash
 LLM_PROVIDER=openai-codex
-LLM_MODEL=gpt-5-codex              # or another model available to your subscription
-CODEX_AUTH_FILE=/var/lib/anytype-agent/codex/auth.json
-# Optional: command that prints a fresh bearer token to stdout.
-CODEX_TOKEN_COMMAND='codex-token-helper'
-# Optional endpoint override; by default the provider uses the known Codex responses endpoint.
+LLM_MODEL=gpt-5-codex
+# Optional endpoint/refresh tuning.
 CODEX_BASE_URL=https://chatgpt.com/backend-api/codex/responses
-# Optional OAuth refresh overrides; defaults match current Codex CLI/OpenCode behavior.
 CODEX_AUTH_ISSUER=https://auth.openai.com
 CODEX_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
 CODEX_REFRESH_SKEW_SECONDS=300
 ```
 
-`CODEX_TOKEN_COMMAND` takes precedence over `CODEX_AUTH_FILE`. Use it when you have external tooling that safely refreshes the token and prints only the bearer token. The command is parsed into argv and executed without a shell, has a 15-second timeout, and error messages intentionally do not echo stderr because helpers may accidentally write secrets there.
+### Auth CLI
 
-Without a token command, the provider reads a Codex-compatible `auth.json`, extracts explicit access-token fields such as `access_token`/`accessToken`/`access`, detects expiry from common expiry fields or the JWT `exp` claim, and refreshes expired or near-expired ChatGPT/Codex access tokens using the same OAuth token endpoint, client id, and `refresh_token` grant used by current OpenAI Codex CLI/OpenCode implementations. Refreshed credentials preserve the existing token key style where practical and are written back atomically with `0600` file permissions where the filesystem supports it. This refresh flow is private subscription auth and may change; for production-style automation, OpenAI still recommends Platform API keys.
-
-### Kubernetes exec login workflow
-
-If your image or a debug/ephemeral container includes a verified Codex CLI, you may log in inside the pod and write the cache to a mounted volume:
+Local login:
 
 ```bash
-kubectl exec -n anytype deploy/anytype-agent -c agent -- sh
-# inside the container
-export HOME=/var/lib/anytype-agent/codex-home
-codex login --device-auth
-cp "$HOME/.codex/auth.json" /var/lib/anytype-agent/codex/auth.json
+python -m src.auth login openai-codex
+python -m src.auth status openai-codex
+python -m src.auth logout openai-codex
 ```
 
-Mount `/var/lib/anytype-agent/codex` from a writable PVC so the auth file survives restarts and automatic refresh can persist rotated refresh tokens. Set `CODEX_AUTH_FILE=/var/lib/anytype-agent/codex/auth.json`.
+The login command prints an OpenAI auth URL. Open it in your browser, authenticate, then copy the final `http://localhost:1455/auth/callback?...` redirect URL back into the prompt. Tokens are written atomically with `0600` permissions where supported, and tokens are not printed.
 
-The checked-in Dockerfile does **not** install the Codex CLI. No validated package/install method is pinned in this repository, and the runtime image is kept minimal to avoid inventing unsupported install steps. Build a derived image only after you verify the CLI installation source/version for your environment, or use the Secret/PVC workflow below.
-
-### Local login to Kubernetes Secret or PVC
-
-A safer operational path is to authenticate locally with the Codex CLI, then copy only the resulting auth cache into Kubernetes storage. Prefer a writable PVC when you want Anytype-Agent to auto-refresh and persist rotated tokens:
+Kubernetes login in the running image:
 
 ```bash
-codex login --device-auth
-kubectl create secret generic anytype-agent-codex-auth \
-  -n anytype \
-  --from-file=auth.json="$HOME/.codex/auth.json"
+kubectl exec -n anytype -it deploy/anytype-agent -c agent -- \
+  python -m src.auth login openai-codex
+kubectl exec -n anytype -it deploy/anytype-agent -c agent -- \
+  python -m src.auth status openai-codex
 ```
 
-Mounting that secret directly is acceptable only as a bootstrap or non-refreshing workflow. Kubernetes Secret volumes are read-only: Anytype-Agent can read a still-valid access token without taking a write lock, but it cannot persist refreshed credentials there once refresh is required, and refresh-token rotation may break future refreshes. For auto-refresh, copy the Secret into a writable PVC with an initContainer, or create/populate the PVC directly, then mount the PVC at `/var/lib/anytype-agent/codex`.
+Logout:
 
-Writable PVC example:
+```bash
+kubectl exec -n anytype -it deploy/anytype-agent -c agent -- \
+  python -m src.auth logout openai-codex
+```
+
+Mount a writable PVC at `/var/lib/anytype-agent` so login and automatic refresh survive pod restarts:
 
 ```yaml
 env:
@@ -141,36 +140,30 @@ env:
     value: openai-codex
   - name: LLM_MODEL
     value: gpt-5-codex
-  - name: CODEX_AUTH_FILE
-    value: /var/lib/anytype-agent/codex/auth.json
 volumeMounts:
-  - name: codex-auth-pvc
-    mountPath: /var/lib/anytype-agent/codex
+  - name: anytype-agent-state
+    mountPath: /var/lib/anytype-agent
 volumes:
-  - name: codex-auth-pvc
+  - name: anytype-agent-state
     persistentVolumeClaim:
-      claimName: anytype-agent-codex-auth
+      claimName: anytype-agent-state
 ```
 
-Read-only Secret example (no persisted auto-refresh unless copied to a writable volume first):
+PVC example:
 
 ```yaml
-env:
-  - name: LLM_PROVIDER
-    value: openai-codex
-  - name: LLM_MODEL
-    value: gpt-5-codex
-  - name: CODEX_AUTH_FILE
-    value: /var/lib/anytype-agent/codex/auth.json
-volumeMounts:
-  - name: codex-auth
-    mountPath: /var/lib/anytype-agent/codex/auth.json
-    subPath: auth.json
-    readOnly: true
-volumes:
-  - name: codex-auth
-    secret:
-      secretName: anytype-agent-codex-auth
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: anytype-agent-state
+  namespace: anytype
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
 ```
 
-Never commit `auth.json` or bearer tokens. Rotate/delete the Kubernetes Secret when access should be revoked.
+The provider reads only Anytype-Agent's auth storage, detects expiry from the stored OAuth metadata/JWT `exp`, and refreshes with the OpenAI Codex OAuth token endpoint before expiry. Refresh persists rotated tokens back to the same writable file. Avoid read-only Secret mounts for this auth file because refresh-token rotation must be saved.
+
+Never commit `auth.json`, redirect URLs, bearer tokens, or refresh tokens.
