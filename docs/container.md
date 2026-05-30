@@ -79,3 +79,71 @@ kubectl rollout status deployment/anytype-agent -n anytype
 ```
 
 Do not commit real API keys. The placeholder secret values in `config/openshift/secrets.yaml` must be replaced or managed through your cluster's secret-management flow before deployment.
+
+## OpenAI Codex/ChatGPT subscription provider auth
+
+`LLM_PROVIDER=openai-codex` enables an explicit, opt-in provider that uses a Codex/ChatGPT subscription bearer token instead of an OpenAI Platform API key. This is separate from `LLM_PROVIDER=openai` and is less stable/official for arbitrary server applications than the public OpenAI API. Keep it isolated to deployments where you accept that risk.
+
+Configuration:
+
+```bash
+LLM_PROVIDER=openai-codex
+LLM_MODEL=gpt-5-codex              # or another model available to your subscription
+CODEX_AUTH_FILE=/var/lib/anytype-agent/codex/auth.json
+# Optional: command that prints a fresh bearer token to stdout.
+CODEX_TOKEN_COMMAND='codex-token-helper'
+# Optional endpoint override; by default the provider uses the known Codex responses endpoint.
+CODEX_BASE_URL=https://chatgpt.com/backend-api/codex/responses
+```
+
+`CODEX_TOKEN_COMMAND` takes precedence over `CODEX_AUTH_FILE`. Use it when you have external tooling that safely refreshes the token and prints only the bearer token. Without a token command, the provider reads a Codex-compatible `auth.json`, extracts `access_token`/`accessToken`/similar fields, and rejects expired tokens when an expiry is present. It does not reimplement OpenAI's private OAuth refresh flow; the Codex CLI or your command is responsible for refresh.
+
+### Kubernetes exec login workflow
+
+If your image or a debug/ephemeral container includes a verified Codex CLI, you may log in inside the pod and write the cache to a mounted volume:
+
+```bash
+kubectl exec -n anytype deploy/anytype-agent -c agent -- sh
+# inside the container
+export HOME=/var/lib/anytype-agent/codex-home
+codex login --device-auth
+cp "$HOME/.codex/auth.json" /var/lib/anytype-agent/codex/auth.json
+```
+
+Mount `/var/lib/anytype-agent/codex` from a Secret or PVC so the auth file survives restarts. Set `CODEX_AUTH_FILE=/var/lib/anytype-agent/codex/auth.json`.
+
+The checked-in Dockerfile does **not** install the Codex CLI. No validated package/install method is pinned in this repository, and the runtime image is kept minimal to avoid inventing unsupported install steps. Build a derived image only after you verify the CLI installation source/version for your environment, or use the Secret/PVC workflow below.
+
+### Local login to Kubernetes Secret or PVC
+
+A safer operational path is to authenticate locally with the Codex CLI, then copy only the resulting auth cache into Kubernetes storage:
+
+```bash
+codex login --device-auth
+kubectl create secret generic anytype-agent-codex-auth \
+  -n anytype \
+  --from-file=auth.json="$HOME/.codex/auth.json"
+```
+
+Mount that secret at `/var/lib/anytype-agent/codex/auth.json` and configure:
+
+```yaml
+env:
+  - name: LLM_PROVIDER
+    value: openai-codex
+  - name: LLM_MODEL
+    value: gpt-5-codex
+  - name: CODEX_AUTH_FILE
+    value: /var/lib/anytype-agent/codex/auth.json
+volumeMounts:
+  - name: codex-auth
+    mountPath: /var/lib/anytype-agent/codex/auth.json
+    subPath: auth.json
+    readOnly: true
+volumes:
+  - name: codex-auth
+    secret:
+      secretName: anytype-agent-codex-auth
+```
+
+Never commit `auth.json` or bearer tokens. Rotate/delete the Kubernetes Secret when access should be revoked.

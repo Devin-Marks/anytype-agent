@@ -25,6 +25,9 @@ class TestSettings:
             assert s.guardrail_llm_base_url is None
             assert s.guardrail_llm_api_key is None
             assert s.guardrail_model is None
+            assert s.codex_auth_file == "/var/lib/anytype-agent/codex/auth.json"
+            assert s.codex_token_command is None
+            assert s.codex_base_url is None
             assert s.default_provider == "openai"
             assert s.openai_api_key is None
             assert s.guardrails_config_path == "/etc/guardrails"
@@ -48,6 +51,9 @@ class TestSettings:
             "GUARDRAIL_LLM_BASE_URL": "https://guard.example/v1",
             "GUARDRAIL_LLM_API_KEY": "guard-key",
             "GUARDRAIL_MODEL": "guard-model",
+            "CODEX_AUTH_FILE": "/custom/codex/auth.json",
+            "CODEX_TOKEN_COMMAND": "print-token",
+            "CODEX_BASE_URL": "https://codex.example/responses",
             "GUARDRAILS_CONFIG_PATH": "/custom/guardrails",
             "SHELL_PROTECTION_ENABLED": "false",
             "MAX_INPUT_LENGTH": "5000",
@@ -68,6 +74,9 @@ class TestSettings:
             assert s.guardrail_llm_base_url == "https://guard.example/v1"
             assert s.guardrail_llm_api_key == "guard-key"
             assert s.guardrail_model == "guard-model"
+            assert s.codex_auth_file == "/custom/codex/auth.json"
+            assert s.codex_token_command == "print-token"
+            assert s.codex_base_url == "https://codex.example/responses"
             assert s.guardrails_config_path == "/custom/guardrails"
             assert s.shell_protection_enabled is False
             assert s.max_input_length == 5000

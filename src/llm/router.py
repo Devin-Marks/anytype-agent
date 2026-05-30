@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 from ..config import get_settings
 from .base import BaseLLMProvider, LLMConfig, ProviderType
-from .providers import AnthropicProvider, OllamaProvider, OpenAIProvider
+from .providers import AnthropicProvider, OllamaProvider, OpenAICodexProvider, OpenAIProvider
 
 
 @dataclass
@@ -72,6 +72,7 @@ class LLMRouter:
         """Factory to create provider from config."""
         providers = {
             ProviderType.OPENAI: OpenAIProvider,
+            ProviderType.OPENAI_CODEX: OpenAICodexProvider,
             ProviderType.ANTHROPIC: AnthropicProvider,
             ProviderType.OLLAMA: OllamaProvider,
         }
@@ -106,6 +107,7 @@ def _provider_type(provider: Optional[str]) -> ProviderType:
     provider_map = {
         "openai": ProviderType.OPENAI,
         "openai-compatible": ProviderType.OPENAI,
+        "openai-codex": ProviderType.OPENAI_CODEX,
         "anthropic": ProviderType.ANTHROPIC,
         "ollama": ProviderType.OLLAMA,
     }
@@ -114,7 +116,7 @@ def _provider_type(provider: Optional[str]) -> ProviderType:
 
 def _api_key_for_provider(provider: ProviderType, settings, explicit_key: Optional[str]) -> Optional[str]:
     """Resolve API key from generic config first, then legacy provider keys."""
-    if provider == ProviderType.OLLAMA:
+    if provider in (ProviderType.OLLAMA, ProviderType.OPENAI_CODEX):
         return None
     if explicit_key:
         return explicit_key
@@ -127,6 +129,8 @@ def _base_url_for_provider(provider: ProviderType, settings, explicit_base_url: 
     """Resolve base URL from generic config first, then legacy provider URLs."""
     if explicit_base_url:
         return explicit_base_url
+    if provider == ProviderType.OPENAI_CODEX:
+        return settings.codex_base_url
     if provider == ProviderType.OLLAMA:
         return settings.ollama_base_url
     return None
@@ -153,6 +157,15 @@ def _setup_default_routes(router: LLMRouter) -> None:
             model=settings.llm_model,
             api_key=api_key,
             base_url=base_url,
+            extra_params=(
+                {
+                    "codex_auth_file": settings.codex_auth_file,
+                    "codex_token_command": settings.codex_token_command,
+                    "codex_base_url": settings.codex_base_url,
+                }
+                if default_provider == ProviderType.OPENAI_CODEX
+                else {}
+            ),
         ),
         use_cases=["agent", "intent", "response"],
     )
@@ -176,6 +189,15 @@ def _setup_default_routes(router: LLMRouter) -> None:
             model=settings.guardrail_model or settings.llm_model,
             api_key=guardrail_key,
             base_url=guardrail_base_url,
+            extra_params=(
+                {
+                    "codex_auth_file": settings.codex_auth_file,
+                    "codex_token_command": settings.codex_token_command,
+                    "codex_base_url": settings.codex_base_url,
+                }
+                if guardrail_provider == ProviderType.OPENAI_CODEX
+                else {}
+            ),
         ),
         use_cases=["guardrail", "input_check", "output_check"],
     )

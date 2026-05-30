@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     llm_provider: str = Field(
         default="openai",
         validation_alias=AliasChoices("LLM_PROVIDER", "DEFAULT_PROVIDER", "llm_provider", "default_provider"),
-        description="Default LLM provider (openai, anthropic, ollama)",
+        description="Default LLM provider (openai, openai-codex, anthropic, ollama)",
     )
     llm_base_url: Optional[str] = Field(
         default=None,
@@ -70,6 +70,23 @@ class Settings(BaseSettings):
     guardrail_model: Optional[str] = Field(
         default=None,
         description="LLM model for guardrail checks; defaults to LLM_MODEL",
+    )
+
+    # OpenAI Codex/ChatGPT subscription auth. Only used with LLM_PROVIDER=openai-codex.
+    codex_auth_file: str = Field(
+        default="/var/lib/anytype-agent/codex/auth.json",
+        validation_alias=AliasChoices("CODEX_AUTH_FILE", "codex_auth_file"),
+        description="Path to Codex CLI OAuth cache auth.json for LLM_PROVIDER=openai-codex",
+    )
+    codex_token_command: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CODEX_TOKEN_COMMAND", "codex_token_command"),
+        description="Optional command that prints a Codex/ChatGPT bearer token; preferred for external refresh",
+    )
+    codex_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CODEX_BASE_URL", "codex_base_url"),
+        description="Override Codex backend endpoint; defaults to the known Codex responses endpoint",
     )
 
     # Legacy/provider-specific settings. Kept for backward compatibility.

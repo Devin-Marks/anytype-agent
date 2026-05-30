@@ -38,3 +38,17 @@ def test_deployment_uses_project_image_placeholder():
 
     assert "image: ghcr.io/your-org/anytype-agent:latest" in deployment
     assert "ghcr.io/anytype/agent:latest" not in deployment
+
+
+def test_codex_kubernetes_workflow_documented():
+    """Docs should explain opt-in Codex subscription auth without committing tokens."""
+    docs = (ROOT / "docs" / "container.md").read_text()
+
+    assert "LLM_PROVIDER=openai-codex" in docs
+    assert "CODEX_AUTH_FILE=/var/lib/anytype-agent/codex/auth.json" in docs
+    assert "CODEX_TOKEN_COMMAND" in docs
+    assert "kubectl exec -n anytype" in docs
+    assert "codex login --device-auth" in docs
+    assert "kubectl create secret generic anytype-agent-codex-auth" in docs
+    assert "does **not** install the Codex CLI" in docs
+    assert "Never commit `auth.json`" in docs

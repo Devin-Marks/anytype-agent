@@ -12,6 +12,7 @@ from enum import Enum
 class ProviderType(Enum):
     """Supported LLM providers."""
     OPENAI = "openai"
+    OPENAI_CODEX = "openai-codex"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
     GROQ = "groq"
