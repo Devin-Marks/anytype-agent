@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: anytype-agent-state
+  namespace: anytype
+  labels:
+    app.kubernetes.io/name: anytype-agent
+    app.kubernetes.io/component: state
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

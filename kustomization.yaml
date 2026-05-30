@@ -5,6 +5,7 @@ resources:
   - config/openshift/agent-policy-configmap.yaml
   - config/openshift/app-configmap.yaml
   - config/openshift/secrets.yaml
+  - manifests/pvc.yaml
   - manifests/deployment.yaml
   - manifests/service.yaml
   - manifests/route.yaml

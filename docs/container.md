@@ -129,7 +129,9 @@ kubectl exec -n anytype -it deploy/anytype-agent -c agent -- \
   python -m src.auth logout openai-codex
 ```
 
-Mount a writable PVC at `/var/lib/anytype-agent` so login and automatic refresh survive pod restarts:
+The base manifests include a writable `PersistentVolumeClaim` named `anytype-agent-state` and mount it at `/var/lib/anytype-agent`. This directory is the app-owned persistent state root for Codex OAuth credentials and future durable Anytype-Agent files. Login and automatic refresh therefore survive pod restarts by default.
+
+The relevant manifest shape is:
 
 ```yaml
 env:
@@ -144,11 +146,7 @@ volumes:
   - name: anytype-agent-state
     persistentVolumeClaim:
       claimName: anytype-agent-state
-```
-
-PVC example:
-
-```yaml
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

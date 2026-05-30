@@ -12,6 +12,7 @@ YAML_FILES = [
     OPENSHIFT_CONFIG / "app-configmap.yaml",
     OPENSHIFT_CONFIG / "secrets.yaml",
     MANIFESTS / "namespace.yaml",
+    MANIFESTS / "pvc.yaml",
     MANIFESTS / "deployment.yaml",
     MANIFESTS / "service.yaml",
     MANIFESTS / "route.yaml",
@@ -42,6 +43,7 @@ def test_kustomization_references_all_phase_6_resources():
         "config/openshift/agent-policy-configmap.yaml",
         "config/openshift/app-configmap.yaml",
         "config/openshift/secrets.yaml",
+        "manifests/pvc.yaml",
         "manifests/deployment.yaml",
         "manifests/service.yaml",
         "manifests/route.yaml",
@@ -74,8 +76,12 @@ def test_deployment_uses_health_probes_without_claiming_openshell_runtime():
     assert container["securityContext"]["allowPrivilegeEscalation"] is False
     assert "ALL" in container["securityContext"]["capabilities"]["drop"]
 
-    assert "volumeMounts" not in container
-    assert "volumes" not in pod_spec
+    assert container["volumeMounts"] == [
+        {"name": "anytype-agent-state", "mountPath": "/var/lib/anytype-agent"}
+    ]
+    assert pod_spec["volumes"] == [
+        {"name": "anytype-agent-state", "persistentVolumeClaim": {"claimName": "anytype-agent-state"}}
+    ]
     env_names = {entry["name"] for entry in container.get("env", [])}
     assert "OPENSHELL_POLICY_DIR" not in env_names
 
@@ -117,6 +123,17 @@ def test_policy_configmap_contains_expected_openshell_policies():
     assert "sudo" in sandbox_policy["process"]["blocked"]
     assert inference_policy["inference"]["privacy"]["strip_credentials"] is True
     assert {provider["name"] for provider in provider_policy["providers"]} >= {"anytype", "llm"}
+
+
+def test_state_pvc_provides_persistent_app_storage():
+    """PVC should provide app-owned persistent state for auth and future durable files."""
+    pvc = load_yaml(MANIFESTS / "pvc.yaml")
+
+    assert pvc["kind"] == "PersistentVolumeClaim"
+    assert pvc["metadata"]["name"] == "anytype-agent-state"
+    assert pvc["metadata"]["namespace"] == "anytype"
+    assert pvc["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert pvc["spec"]["resources"]["requests"]["storage"] == "1Gi"
 
 
 def test_service_route_hpa_and_network_policy_target_agent():

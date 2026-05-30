@@ -50,6 +50,8 @@ def test_codex_kubernetes_workflow_documented():
     assert "python -m src.auth status openai-codex" in docs
     assert "python -m src.auth logout openai-codex" in docs
     assert "kubectl exec -n anytype" in docs
+    assert "PersistentVolumeClaim" in docs
+    assert "claimName: anytype-agent-state" in docs
     assert "CODEX_AUTH_FILE" not in docs
     assert "CODEX_TOKEN_COMMAND" not in docs
     assert "ANYTYPE_AGENT_AUTH_FILE" not in docs

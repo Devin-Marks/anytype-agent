@@ -43,6 +43,9 @@ spec:
                 name: anytype-agent-config
             - secretRef:
                 name: anytype-agent-secrets
+          volumeMounts:
+            - name: anytype-agent-state
+              mountPath: /var/lib/anytype-agent
           livenessProbe:
             httpGet:
               path: /health
@@ -71,3 +74,7 @@ spec:
             capabilities:
               drop:
                 - ALL
+      volumes:
+        - name: anytype-agent-state
+          persistentVolumeClaim:
+            claimName: anytype-agent-state
