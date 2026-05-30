@@ -96,7 +96,7 @@ CODEX_TOKEN_COMMAND='codex-token-helper'
 CODEX_BASE_URL=https://chatgpt.com/backend-api/codex/responses
 ```
 
-`CODEX_TOKEN_COMMAND` takes precedence over `CODEX_AUTH_FILE`. Use it when you have external tooling that safely refreshes the token and prints only the bearer token. Without a token command, the provider reads a Codex-compatible `auth.json`, extracts `access_token`/`accessToken`/similar fields, and rejects expired tokens when an expiry is present. It does not reimplement OpenAI's private OAuth refresh flow; the Codex CLI or your command is responsible for refresh.
+`CODEX_TOKEN_COMMAND` takes precedence over `CODEX_AUTH_FILE`. Use it when you have external tooling that safely refreshes the token and prints only the bearer token. The command is parsed into argv and executed without a shell, has a 15-second timeout, and error messages intentionally do not echo stderr because helpers may accidentally write secrets there. Without a token command, the provider reads a Codex-compatible `auth.json`, extracts only explicit access-token fields such as `access_token`/`accessToken`, and rejects expired tokens when an expiry is present. It does not reimplement OpenAI's private OAuth refresh flow; the Codex CLI or your command is responsible for refresh.
 
 ### Kubernetes exec login workflow
 

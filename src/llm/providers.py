@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 from typing import Any, AsyncGenerator, Dict, List
 
@@ -71,7 +72,7 @@ def _find_codex_access_token(data: Any) -> tuple[str | None, datetime | None]:
                     if parsed is not None:
                         local_expiry = parsed
                         break
-            for key in ("access_token", "accessToken", "token", "bearer_token", "bearerToken"):
+            for key in ("access_token", "accessToken", "bearer_token", "bearerToken"):
                 token = node.get(key)
                 if isinstance(token, str) and token.strip():
                     return token.strip(), local_expiry
@@ -201,23 +202,36 @@ class OpenAICodexProvider(BaseLLMProvider):
 
     async def _token_from_command(self, command: str) -> str:
         def run_command() -> str:
-            completed = subprocess.run(
-                command,
-                shell=True,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
+            try:
+                args = shlex.split(command)
+            except ValueError as exc:
+                raise CodexAuthError("CODEX_TOKEN_COMMAND could not be parsed") from exc
+            if not args:
+                raise CodexAuthError("CODEX_TOKEN_COMMAND is empty")
+
+            try:
+                completed = subprocess.run(
+                    args,
+                    shell=False,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise CodexAuthError("CODEX_TOKEN_COMMAND timed out after 15 seconds") from exc
+            except OSError as exc:
+                raise CodexAuthError(f"CODEX_TOKEN_COMMAND could not be executed: {exc}") from exc
+
             if completed.returncode != 0:
-                stderr = completed.stderr.strip()
+                stderr_note = " and wrote to stderr" if completed.stderr.strip() else ""
                 raise CodexAuthError(
-                    f"CODEX_TOKEN_COMMAND failed with exit code {completed.returncode}"
-                    + (f": {stderr}" if stderr else "")
+                    f"CODEX_TOKEN_COMMAND failed with exit code {completed.returncode}{stderr_note}"
                 )
             token = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
             if not token:
-                raise CodexAuthError("CODEX_TOKEN_COMMAND did not print a bearer token")
+                stderr_note = "; command wrote to stderr" if completed.stderr.strip() else ""
+                raise CodexAuthError(f"CODEX_TOKEN_COMMAND did not print a bearer token{stderr_note}")
             return token
 
         return await asyncio.to_thread(run_command)

@@ -15,6 +15,7 @@ from src.llm.providers import (
     OpenAICodexProvider,
     OpenAIProvider,
     OllamaProvider,
+    _parse_expiry,
 )
 from src.llm.router import LLMRouter, get_router, _setup_default_routes
 
@@ -235,6 +236,45 @@ class TestOpenAICodexProvider:
             await provider._bearer_token()
 
     @pytest.mark.asyncio
+    async def test_ignores_generic_token_field(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text('{"tokens":{"token":"generic-secret"}}')
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        with pytest.raises(CodexAuthError, match="does not contain an access token"):
+            await provider._bearer_token()
+
+    @pytest.mark.asyncio
+    async def test_reads_realistic_nested_access_token(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            '{"accounts":{"chatgpt":{"tokens":{'
+            '"accessToken":"nested-token","expiresAt":"2999-01-01T00:00:00Z"}}}}'
+        )
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        assert await provider._bearer_token() == "nested-token"
+
+    def test_parse_expiry_treats_naive_iso_as_utc(self):
+        expiry = _parse_expiry("2999-01-01T00:00:00")
+
+        assert expiry is not None
+        assert expiry.tzinfo is not None
+        assert expiry.isoformat() == "2999-01-01T00:00:00+00:00"
+
+    @pytest.mark.asyncio
     async def test_expired_token_error(self, tmp_path):
         auth_file = tmp_path / "auth.json"
         auth_file.write_text('{"tokens":{"access_token":"old","expires_at":"2000-01-01T00:00:00Z"}}')
@@ -264,6 +304,38 @@ class TestOpenAICodexProvider:
         )
 
         assert await provider._bearer_token() == "command-token"
+
+    @pytest.mark.asyncio
+    async def test_token_command_does_not_use_shell(self, tmp_path):
+        marker = tmp_path / "shell-injection-marker"
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_token_command": f"printf safe-token; touch {marker}"},
+            )
+        )
+
+        assert await provider._bearer_token() == "safe-token;"
+        assert not marker.exists()
+
+    @pytest.mark.asyncio
+    async def test_token_command_error_does_not_echo_stderr_secret(self):
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_token_command": "sh -c 'echo secret-token >&2; exit 2'"},
+            )
+        )
+
+        with pytest.raises(CodexAuthError) as exc_info:
+            await provider._bearer_token()
+
+        message = str(exc_info.value)
+        assert "exit code 2" in message
+        assert "wrote to stderr" in message
+        assert "secret-token" not in message
 
     @pytest.mark.asyncio
     async def test_complete_request_format_and_headers(self, tmp_path):
