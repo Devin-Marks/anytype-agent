@@ -131,9 +131,9 @@ class TestStreamingHandler:
 
         events = [event async for event in handler.stream_response({})]
 
-        assert len(events) == 1
-        assert events[0].event_type == StreamEventType.ERROR
+        assert [event.event_type for event in events] == [StreamEventType.ERROR, StreamEventType.DONE]
         assert events[0].data == {"error": "boom"}
+        assert events[1].data == {"completed": False}
 
     @pytest.mark.asyncio
     async def test_stream_response_graph_error_state(self):
@@ -217,6 +217,20 @@ class TestStreamingEndpoints:
             "configurable": {"thread_id": "thread-1"},
             "stream_mode": "values",
         }
+
+    def test_stream_invoke_no_provider_sse_error(self, streaming_client):
+        message = "LLM provider is not configured/authenticated. Set LLM_PROVIDER/LLM_API_KEY."
+        graph = FakeGraph(error=RuntimeError(message))
+
+        with patch("src.graph.builder.get_graph", return_value=graph):
+            response = streaming_client.post("/stream/invoke", json={"input": "Create page"})
+
+        assert response.status_code == 200
+        lines = _event_lines(response.text)
+        assert "event: error" in lines
+        assert f"data: {json.dumps({'error': message})}" in lines
+        assert "event: done" in lines
+        assert f"data: {json.dumps({'completed': False})}" in lines
 
     def test_stream_invoke_json_fallback(self, streaming_client):
         graph = FakeGraph([{"intent": "create_page"}, {"output": "Done"}])

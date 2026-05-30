@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from ..config import get_settings
-from .base import BaseLLMProvider, LLMConfig, ProviderType
+from .base import BaseLLMProvider, LLMConfig, LLMConfigurationError, ProviderType
 from .providers import AnthropicProvider, OllamaProvider, OpenAICodexProvider, OpenAIProvider
 
 
@@ -103,7 +103,7 @@ def get_router() -> LLMRouter:
 
 
 def _provider_type(provider: Optional[str]) -> ProviderType:
-    """Map provider name to ProviderType, defaulting to OpenAI-compatible."""
+    """Map provider name to ProviderType, requiring a known configured provider."""
     provider_map = {
         "openai": ProviderType.OPENAI,
         "openai-compatible": ProviderType.OPENAI,
@@ -111,7 +111,14 @@ def _provider_type(provider: Optional[str]) -> ProviderType:
         "anthropic": ProviderType.ANTHROPIC,
         "ollama": ProviderType.OLLAMA,
     }
-    return provider_map.get((provider or "openai").lower(), ProviderType.OPENAI)
+    normalized = (provider or "").strip().lower()
+    if not normalized or normalized not in provider_map:
+        raise LLMConfigurationError(
+            "LLM provider is not configured/authenticated. Set LLM_PROVIDER to one of: "
+            "openai, openai-codex, anthropic, ollama. Set LLM_API_KEY when required or run "
+            "`python -m src.auth login openai-codex`."
+        )
+    return provider_map[normalized]
 
 
 def _api_key_for_provider(provider: ProviderType, settings, explicit_key: Optional[str]) -> Optional[str]:

@@ -93,6 +93,10 @@ class StreamingHandler:
                 event_type=StreamEventType.ERROR,
                 data={"error": str(exc)},
             )
+            yield StreamEvent(
+                event_type=StreamEventType.DONE,
+                data={"completed": False},
+            )
 
     async def _events_for_chunk(
         self,

@@ -195,7 +195,16 @@ async def invoke(request: AgentRequest):
     if request.thread_id:
         config["configurable"] = {"thread_id": request.thread_id}
 
-    result = await graph.ainvoke(initial_state, config=config)
+    try:
+        result = await graph.ainvoke(initial_state, config=config)
+    except Exception as exc:  # pragma: no cover - graph/provider failures vary
+        logger.warning("Agent invocation failed: %s", exc)
+        return AgentResponse(
+            output=None,
+            blocked=False,
+            is_error=True,
+            error_detail=str(exc),
+        )
 
     return AgentResponse(
         output=result.get("output"),

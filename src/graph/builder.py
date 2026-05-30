@@ -42,7 +42,14 @@ def build_graph() -> StateGraph:
     )
 
     # Normal flow
-    builder.add_edge("parse_intent", "execute_tool")
+    builder.add_conditional_edges(
+        "parse_intent",
+        _should_execute_tool,
+        {
+            "error": END,
+            "execute": "execute_tool",
+        },
+    )
     builder.add_edge("execute_tool", "output_guardrail")
 
     # Conditional routing from output guardrail
@@ -66,6 +73,14 @@ def _should_proceed(state: AgentState) -> Literal["blocked", "proceed"]:
         logger.info("Request blocked by input guardrail")
         return "blocked"
     return "proceed"
+
+
+def _should_execute_tool(state: AgentState) -> Literal["error", "execute"]:
+    """Stop early if intent parsing or LLM setup failed."""
+    if state.get("is_error", False):
+        logger.info("Stopping before tool execution because intent parsing failed")
+        return "error"
+    return "execute"
 
 
 def _check_output_guardrail(state: AgentState) -> Literal["blocked", "proceed"]:

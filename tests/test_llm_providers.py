@@ -10,6 +10,7 @@ from src.llm.base import (
     BaseLLMProvider,
     LLMResponse,
     LLMConfig,
+    LLMConfigurationError,
     ProviderType,
 )
 from src.llm.providers import (
@@ -140,6 +141,14 @@ class TestOpenAIProvider:
         assert result.usage["total_tokens"] == 15
 
     @pytest.mark.asyncio
+    async def test_missing_openai_key_for_hosted_endpoint_is_actionable(self):
+        provider = OpenAIProvider(LLMConfig(provider=ProviderType.OPENAI, model="gpt-4"))
+
+        with patch.dict("os.environ", {}, clear=True):
+            with pytest.raises(LLMConfigurationError, match="LLM provider is not configured/authenticated"):
+                await provider.complete([{"role": "user", "content": "hi"}])
+
+    @pytest.mark.asyncio
     async def test_local_openai_compatible_endpoint_can_be_keyless(self):
         mock_client = MagicMock()
         mock_client.models.list = AsyncMock()
@@ -173,7 +182,7 @@ class TestOpenAIProvider:
 
         with patch("src.llm.providers.AsyncOpenAI", return_value=mock_client):
             provider = OpenAIProvider(
-                LLMConfig(provider=ProviderType.OPENAI, model="gpt-4")
+                LLMConfig(provider=ProviderType.OPENAI, model="gpt-4", api_key="test-key")
             )
             chunks = []
             async for c in provider.stream([{"role": "user", "content": "hi"}]):
@@ -188,7 +197,7 @@ class TestOpenAIProvider:
 
         with patch("src.llm.providers.AsyncOpenAI", return_value=mock_client):
             provider = OpenAIProvider(
-                LLMConfig(provider=ProviderType.OPENAI, model="gpt-4")
+                LLMConfig(provider=ProviderType.OPENAI, model="gpt-4", api_key="test-key")
             )
             assert await provider.health_check() is True
 
@@ -199,7 +208,7 @@ class TestOpenAIProvider:
 
         with patch("src.llm.providers.AsyncOpenAI", return_value=mock_client):
             provider = OpenAIProvider(
-                LLMConfig(provider=ProviderType.OPENAI, model="gpt-4")
+                LLMConfig(provider=ProviderType.OPENAI, model="gpt-4", api_key="test-key")
             )
             assert await provider.health_check() is False
 
@@ -610,7 +619,7 @@ class TestAnthropicProvider:
 
         with patch("src.llm.providers.AsyncAnthropic", return_value=mock_client):
             provider = AnthropicProvider(
-                LLMConfig(provider=ProviderType.ANTHROPIC, model="claude-3")
+                LLMConfig(provider=ProviderType.ANTHROPIC, model="claude-3", api_key="key")
             )
             result = await provider.complete([{"role": "user", "content": "hi"}])
 
@@ -623,7 +632,7 @@ class TestAnthropicProvider:
 
         with patch("src.llm.providers.AsyncAnthropic", return_value=mock_client):
             provider = AnthropicProvider(
-                LLMConfig(provider=ProviderType.ANTHROPIC, model="claude-3")
+                LLMConfig(provider=ProviderType.ANTHROPIC, model="claude-3", api_key="key")
             )
             assert await provider.health_check() is True
 
@@ -931,7 +940,7 @@ class TestSetupDefaultRoutes:
         assert router._routes["agent"].provider.config.model == "gpt-4"
         assert router._routes["agent"].provider.config.api_key == "legacy-openai"
 
-    def test_invalid_provider_defaults_to_openai_compatible(self):
+    def test_invalid_provider_raises_actionable_error(self):
         settings = MagicMock(
             llm_provider="invalid_provider",
             llm_base_url="https://llm.example/v1",
@@ -948,6 +957,5 @@ class TestSetupDefaultRoutes:
         router = LLMRouter()
 
         with patch("src.llm.router.get_settings", return_value=settings):
-            _setup_default_routes(router)
-
-        assert router._routes["agent"].provider.config.provider == ProviderType.OPENAI
+            with pytest.raises(LLMConfigurationError, match="LLM provider is not configured/authenticated"):
+                _setup_default_routes(router)

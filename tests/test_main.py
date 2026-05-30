@@ -4,6 +4,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from src.llm import LLMConfigurationError
 from src.main import app
 
 
@@ -128,6 +129,19 @@ class TestInvokeEndpoint:
         data = response.json()
         assert data["is_error"] is True
         assert data["error_detail"] == "Tool failed"
+
+    def test_invoke_llm_configuration_error_is_structured(self, client):
+        mock_graph = AsyncMock()
+        mock_graph.ainvoke = AsyncMock(side_effect=LLMConfigurationError())
+
+        with patch("src.graph.builder.get_graph", return_value=mock_graph):
+            response = client.post("/invoke", json={"input": "hello"})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_error"] is True
+        assert "LLM provider is not configured/authenticated" in data["error_detail"]
+        assert "python -m src.auth login openai-codex" in data["error_detail"]
 
     def test_invoke_invalid_request(self, client):
         """Missing required 'input' field should fail validation."""

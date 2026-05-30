@@ -9,6 +9,19 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
+class LLMConfigurationError(RuntimeError):
+    """Raised when no usable LLM provider/auth is configured."""
+
+    default_action = (
+        "LLM provider is not configured/authenticated. Set LLM_PROVIDER/LLM_API_KEY "
+        "or run `python -m src.auth login openai-codex`."
+    )
+
+    def __init__(self, detail: str | None = None):
+        self.detail = detail or self.default_action
+        super().__init__(self.detail)
+
+
 class ProviderType(Enum):
     """Supported LLM providers."""
     OPENAI = "openai"

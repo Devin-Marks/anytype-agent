@@ -8,24 +8,30 @@ from fastapi.testclient import TestClient
 from src.api.a2a.agent_card import get_anytype_agent_card
 from src.api.a2a.client import A2AClient
 from src.api.a2a.server import A2AServer, Message, MessageRole, TaskStatus, TextPart
+from src.llm import LLMConfigurationError
 from src.main import app
 
 
 class FakeGraph:
     """Async graph test double for A2A tests."""
 
-    def __init__(self, chunks=None, result=None):
+    def __init__(self, chunks=None, result=None, error: Exception | None = None):
         self.chunks = chunks or []
         self.result = result or {"output": "Done", "blocked": False}
+        self.error = error
         self.ainvoke_calls = []
         self.astream_calls = []
 
     async def ainvoke(self, state, config=None):
         self.ainvoke_calls.append({"state": state, "config": config})
+        if self.error:
+            raise self.error
         return self.result
 
     async def astream(self, state, config=None, stream_mode=None):
         self.astream_calls.append({"state": state, "config": config, "stream_mode": stream_mode})
+        if self.error:
+            raise self.error
         for chunk in self.chunks:
             yield chunk
 
@@ -109,6 +115,18 @@ class TestA2AServer:
         assert task.error == "unsafe"
 
     @pytest.mark.asyncio
+    async def test_send_task_llm_configuration_failure(self):
+        graph = FakeGraph(error=LLMConfigurationError())
+        server = A2AServer(graph=graph)
+        message = Message(role=MessageRole.USER, parts=[TextPart(text="Create page")])
+
+        task = await server.send_task("session-1", message, "task-1")
+
+        assert task.status == TaskStatus.FAILED
+        assert "LLM provider is not configured/authenticated" in task.error
+        assert "python -m src.auth login openai-codex" in task.error
+
+    @pytest.mark.asyncio
     async def test_send_task_stream(self):
         graph = FakeGraph(
             chunks=[
@@ -150,6 +168,32 @@ class TestA2AEndpoints:
         assert data["status"] == "completed"
         assert data["result"] == "Done"
         assert data["sessionId"] == "session-1"
+
+    def test_tasks_send_no_provider_endpoint(self, a2a_client):
+        server = A2AServer(graph=FakeGraph(error=LLMConfigurationError()))
+
+        with patch("src.api.a2a.router.get_a2a_server", return_value=server):
+            response = a2a_client.post("/a2a/tasks/send", json=_task_payload())
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "failed"
+        assert "LLM provider is not configured/authenticated" in data["error"]
+
+    def test_tasks_send_subscribe_no_provider_endpoint(self, a2a_client):
+        server = A2AServer(graph=FakeGraph(error=LLMConfigurationError()))
+
+        with patch("src.api.a2a.router.get_a2a_server", return_value=server):
+            response = a2a_client.post("/a2a/tasks/sendSubscribe", json=_task_payload())
+
+        assert response.status_code == 200
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[-1]["status"] == "failed"
+        assert "LLM provider is not configured/authenticated" in events[-1]["error"]
 
     def test_tasks_send_subscribe_endpoint(self, a2a_client):
         server = A2AServer(graph=FakeGraph(chunks=[{"intent": "search"}, {"output": "Found"}]))

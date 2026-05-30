@@ -6,6 +6,7 @@ import pytest
 
 from src.graph.state import AgentState
 from src.graph.nodes.intent_parser import parse_intent, _fallback_intent_parse, INTENT_PATTERNS
+from src.llm import LLMConfigurationError
 
 
 class TestFallbackIntentParse:
@@ -140,4 +141,33 @@ class TestParseIntent:
 
         assert result["intent"] == "unknown"
         assert result.get("is_error") is True
-        assert "LLM unavailable" in result["tool_error"]
+        assert "LLM unavailable" in result["error_detail"]
+
+    @pytest.mark.asyncio
+    async def test_llm_configuration_error_is_actionable(self):
+        mock_router = MagicMock()
+        mock_router.get_route = MagicMock(side_effect=LLMConfigurationError())
+
+        state: AgentState = {
+            "user_request": "Create a page",
+            "space_id": None,
+            "intent": None,
+            "object_type": None,
+            "tool_params": None,
+            "tool_name": None,
+            "tool_result": None,
+            "tool_error": None,
+            "output": None,
+            "blocked": False,
+            "block_reason": None,
+            "is_error": False,
+            "error_detail": None,
+        }
+
+        with patch("src.graph.nodes.intent_parser.get_router", return_value=mock_router):
+            result = await parse_intent(state)
+
+        assert result["intent"] == "unknown"
+        assert result["is_error"] is True
+        assert "LLM provider is not configured/authenticated" in result["error_detail"]
+        assert "python -m src.auth login openai-codex" in result["error_detail"]

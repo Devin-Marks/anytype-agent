@@ -9,6 +9,7 @@ from .base import (
     BaseLLMProvider,
     LLMResponse,
     LLMConfig,
+    LLMConfigurationError,
     ProviderType,
 )
 from .providers import OpenAIProvider, AnthropicProvider, OllamaProvider
@@ -18,6 +19,7 @@ __all__ = [
     "BaseLLMProvider",
     "LLMResponse",
     "LLMConfig",
+    "LLMConfigurationError",
     "ProviderType",
     "OpenAIProvider",
     "AnthropicProvider",

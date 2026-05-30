@@ -2,7 +2,8 @@
 import json
 import logging
 
-from ...llm import get_router
+from ...llm import LLMConfigurationError, get_router
+from ...llm.providers import CodexAuthError
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -55,11 +56,18 @@ async def parse_intent(state: AgentState) -> dict:
             # Fallback: simple keyword matching
             return _fallback_intent_parse(user_request)
 
+    except (LLMConfigurationError, CodexAuthError) as e:
+        logger.warning("LLM provider/auth is not usable: %s", e)
+        return {
+            "intent": "unknown",
+            "error_detail": str(e),
+            "is_error": True,
+        }
     except Exception as e:
         logger.error(f"Intent parsing failed: {e}")
         return {
             "intent": "unknown",
-            "tool_error": str(e),
+            "error_detail": str(e),
             "is_error": True,
         }
 

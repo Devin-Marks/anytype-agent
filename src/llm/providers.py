@@ -19,6 +19,7 @@ from openai import AsyncOpenAI
 
 from .base import (
     BaseLLMProvider,
+    LLMConfigurationError,
     LLMResponse,
     ProviderType,
 )
@@ -39,7 +40,7 @@ CODEX_PROVIDER_KEY = "openai-codex"
 _CODEX_REFRESH_LOCKS: dict[str, asyncio.Lock] = {}
 
 
-class CodexAuthError(RuntimeError):
+class CodexAuthError(LLMConfigurationError):
     """Raised when OpenAI Codex subscription auth cannot provide a bearer token."""
 
 
@@ -176,8 +177,14 @@ class OpenAIProvider(BaseLLMProvider):
         return None
 
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        api_key = self._api_key()
+        if not api_key:
+            raise LLMConfigurationError(
+                "LLM provider is not configured/authenticated. Set LLM_PROVIDER=openai and LLM_API_KEY, "
+                "or set LLM_BASE_URL for a local/OpenAI-compatible endpoint."
+            )
         client = AsyncOpenAI(
-            api_key=self._api_key(),
+            api_key=api_key,
             base_url=self.config.base_url,
         )
 
@@ -203,8 +210,14 @@ class OpenAIProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+        api_key = self._api_key()
+        if not api_key:
+            raise LLMConfigurationError(
+                "LLM provider is not configured/authenticated. Set LLM_PROVIDER=openai and LLM_API_KEY, "
+                "or set LLM_BASE_URL for a local/OpenAI-compatible endpoint."
+            )
         client = AsyncOpenAI(
-            api_key=self._api_key(),
+            api_key=api_key,
             base_url=self.config.base_url,
         )
 
@@ -228,8 +241,14 @@ class OpenAIProvider(BaseLLMProvider):
 
     async def health_check(self) -> bool:
         try:
+            api_key = self._api_key()
+            if not api_key:
+                raise LLMConfigurationError(
+                    "LLM provider is not configured/authenticated. Set LLM_PROVIDER=openai and LLM_API_KEY, "
+                    "or set LLM_BASE_URL for a local/OpenAI-compatible endpoint."
+                )
             client = AsyncOpenAI(
-                api_key=self._api_key(),
+                api_key=api_key,
                 base_url=self.config.base_url,
             )
             await client.models.list()
@@ -534,9 +553,16 @@ class AnthropicProvider(BaseLLMProvider):
 
     async def complete(self, messages: List[Dict[str, str]]) -> LLMResponse:
         if AsyncAnthropic is None:
-            raise ImportError("anthropic package is not installed")
+            raise LLMConfigurationError(
+                "LLM provider is not configured/authenticated. Install the anthropic package or choose another LLM_PROVIDER."
+            )
+        api_key = self._api_key()
+        if not api_key:
+            raise LLMConfigurationError(
+                "LLM provider is not configured/authenticated. Set LLM_PROVIDER=anthropic and LLM_API_KEY."
+            )
 
-        client = AsyncAnthropic(api_key=self._api_key())
+        client = AsyncAnthropic(api_key=api_key)
 
         system = ""
         anthropic_messages = []
@@ -570,9 +596,16 @@ class AnthropicProvider(BaseLLMProvider):
 
     async def stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         if AsyncAnthropic is None:
-            raise ImportError("anthropic package is not installed")
+            raise LLMConfigurationError(
+                "LLM provider is not configured/authenticated. Install the anthropic package or choose another LLM_PROVIDER."
+            )
+        api_key = self._api_key()
+        if not api_key:
+            raise LLMConfigurationError(
+                "LLM provider is not configured/authenticated. Set LLM_PROVIDER=anthropic and LLM_API_KEY."
+            )
 
-        client = AsyncAnthropic(api_key=self._api_key())
+        client = AsyncAnthropic(api_key=api_key)
 
         system = ""
         anthropic_messages = []
@@ -599,7 +632,12 @@ class AnthropicProvider(BaseLLMProvider):
             return False
 
         try:
-            client = AsyncAnthropic(api_key=self._api_key())
+            api_key = self._api_key()
+            if not api_key:
+                raise LLMConfigurationError(
+                    "LLM provider is not configured/authenticated. Set LLM_PROVIDER=anthropic and LLM_API_KEY."
+                )
+            client = AsyncAnthropic(api_key=api_key)
             await client.messages.list(limit=1)
             return True
         except Exception:
