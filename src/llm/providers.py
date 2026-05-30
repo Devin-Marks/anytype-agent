@@ -1,13 +1,20 @@
 """LLM provider implementations."""
 import asyncio
-from datetime import datetime, timezone
+import base64
+from datetime import datetime, timedelta, timezone
 import inspect
 import json
 import os
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 from typing import Any, AsyncGenerator, Dict, List
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-Unix fallback
+    fcntl = None
 
 import httpx
 from openai import AsyncOpenAI
@@ -25,6 +32,10 @@ except ImportError:  # pragma: no cover - exercised only without optional depend
 
 
 CODEX_DEFAULT_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
+CODEX_DEFAULT_AUTH_ISSUER = "https://auth.openai.com"
+CODEX_DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+CODEX_DEFAULT_REFRESH_SKEW_SECONDS = 300
+_CODEX_REFRESH_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 class CodexAuthError(RuntimeError):
@@ -59,11 +70,29 @@ def _parse_expiry(value: Any) -> datetime | None:
     return None
 
 
-def _find_codex_access_token(data: Any) -> tuple[str | None, datetime | None]:
-    """Find a Codex-compatible access token and optional expiry in auth.json data."""
-    expiry_keys = ("expires_at", "expiresAt", "expires", "expiry", "expiration")
+def _jwt_expiry(token: str) -> datetime | None:
+    """Parse a JWT exp claim without verifying the token."""
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return _parse_expiry(claims.get("exp"))
 
-    def walk(node: Any, inherited_expiry: datetime | None = None) -> tuple[str | None, datetime | None]:
+
+def _codex_token_record(data: Any) -> tuple[dict[str, Any] | None, str | None, str | None, datetime | None]:
+    """Find a Codex-compatible token record with access/refresh tokens."""
+    expiry_keys = ("expires_at", "expiresAt", "expires", "expiry", "expiration")
+    access_keys = ("access_token", "accessToken", "bearer_token", "bearerToken")
+    refresh_keys = ("refresh_token", "refreshToken")
+
+    best: tuple[dict[str, Any] | None, str | None, str | None, datetime | None] = (None, None, None, None)
+
+    def walk(node: Any, inherited_expiry: datetime | None = None) -> None:
+        nonlocal best
         if isinstance(node, dict):
             local_expiry = inherited_expiry
             for key in expiry_keys:
@@ -72,22 +101,39 @@ def _find_codex_access_token(data: Any) -> tuple[str | None, datetime | None]:
                     if parsed is not None:
                         local_expiry = parsed
                         break
-            for key in ("access_token", "accessToken", "bearer_token", "bearerToken"):
-                token = node.get(key)
-                if isinstance(token, str) and token.strip():
-                    return token.strip(), local_expiry
+            access_token = next(
+                (node[key].strip() for key in access_keys if isinstance(node.get(key), str) and node[key].strip()),
+                None,
+            )
+            refresh_token = next(
+                (node[key].strip() for key in refresh_keys if isinstance(node.get(key), str) and node[key].strip()),
+                None,
+            )
+            if access_token:
+                token_expiry = local_expiry or _jwt_expiry(access_token)
+                if refresh_token:
+                    best = (node, access_token, refresh_token, token_expiry)
+                    return
+                if best[1] is None:
+                    best = (node, access_token, None, token_expiry)
             for value in node.values():
-                found_token, found_expiry = walk(value, local_expiry)
-                if found_token:
-                    return found_token, found_expiry
+                walk(value, local_expiry)
+                if best[2]:
+                    return
         elif isinstance(node, list):
             for value in node:
-                found_token, found_expiry = walk(value, inherited_expiry)
-                if found_token:
-                    return found_token, found_expiry
-        return None, inherited_expiry
+                walk(value, inherited_expiry)
+                if best[2]:
+                    return
 
-    return walk(data)
+    walk(data)
+    return best
+
+
+def _find_codex_access_token(data: Any) -> tuple[str | None, datetime | None]:
+    """Find a Codex-compatible access token and optional expiry in auth.json data."""
+    _, token, _, expiry = _codex_token_record(data)
+    return token, expiry
 
 
 async def _read_ollama_response(response: Any) -> dict:
@@ -200,6 +246,31 @@ class OpenAICodexProvider(BaseLLMProvider):
     def _token_command(self) -> str | None:
         return self.config.extra_params.get("codex_token_command") or os.getenv("CODEX_TOKEN_COMMAND")
 
+    def _auth_issuer(self) -> str:
+        return (
+            self.config.extra_params.get("codex_auth_issuer")
+            or os.getenv("CODEX_AUTH_ISSUER")
+            or CODEX_DEFAULT_AUTH_ISSUER
+        ).rstrip("/")
+
+    def _client_id(self) -> str:
+        return (
+            self.config.extra_params.get("codex_client_id")
+            or os.getenv("CODEX_CLIENT_ID")
+            or CODEX_DEFAULT_CLIENT_ID
+        )
+
+    def _refresh_skew(self) -> int:
+        configured = self.config.extra_params.get("codex_refresh_skew_seconds") or os.getenv(
+            "CODEX_REFRESH_SKEW_SECONDS"
+        )
+        if configured in (None, ""):
+            return CODEX_DEFAULT_REFRESH_SKEW_SECONDS
+        try:
+            return max(0, int(configured))
+        except (TypeError, ValueError):
+            return CODEX_DEFAULT_REFRESH_SKEW_SECONDS
+
     async def _token_from_command(self, command: str) -> str:
         def run_command() -> str:
             try:
@@ -236,33 +307,143 @@ class OpenAICodexProvider(BaseLLMProvider):
 
         return await asyncio.to_thread(run_command)
 
-    async def _bearer_token(self) -> str:
-        token_command = self._token_command()
-        if token_command:
-            return await self._token_from_command(token_command)
-
-        auth_file = self._auth_file()
+    def _read_auth_data(self, auth_file: Path) -> Any:
         if not auth_file.exists():
             raise CodexAuthError(
                 f"Codex auth file not found: {auth_file}. Run `codex login --device-auth` "
                 "or mount a Codex auth.json, or configure CODEX_TOKEN_COMMAND."
             )
         try:
-            data = json.loads(auth_file.read_text(encoding="utf-8"))
+            return json.loads(auth_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise CodexAuthError(f"Codex auth file is malformed JSON: {auth_file}") from exc
         except OSError as exc:
             raise CodexAuthError(f"Could not read Codex auth file {auth_file}: {exc}") from exc
 
-        token, expiry = _find_codex_access_token(data)
-        if not token:
-            raise CodexAuthError(f"Codex auth file does not contain an access token: {auth_file}")
-        if expiry is not None and expiry <= datetime.now(timezone.utc):
+    def _needs_refresh(self, expiry: datetime | None) -> bool:
+        if expiry is None:
+            return False
+        return expiry <= datetime.now(timezone.utc) + timedelta(seconds=self._refresh_skew())
+
+    async def _refresh_codex_tokens(self, refresh_token: str) -> dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+                response = await client.post(
+                    f"{self._auth_issuer()}/oauth/token",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "grant_type": "refresh_token",
+                        "refresh_token": refresh_token,
+                        "client_id": self._client_id(),
+                    },
+                )
+        except httpx.HTTPError as exc:
+            raise CodexAuthError(f"Codex OAuth token refresh request failed: {exc.__class__.__name__}") from exc
+
+        if response.status_code >= 400:
+            raise CodexAuthError(f"Codex OAuth token refresh failed with HTTP {response.status_code}")
+        try:
+            data = response.json()
+        except json.JSONDecodeError as exc:
+            raise CodexAuthError("Codex OAuth token refresh returned malformed JSON") from exc
+        if not isinstance(data, dict) or not isinstance(data.get("access_token"), str):
+            raise CodexAuthError("Codex OAuth token refresh response did not contain an access token")
+        return data
+
+    def _persist_refreshed_auth(self, auth_file: Path, data: Any, record: dict[str, Any], refreshed: dict[str, Any]) -> None:
+        record["access_token"] = refreshed["access_token"].strip()
+        if isinstance(refreshed.get("refresh_token"), str) and refreshed["refresh_token"].strip():
+            record["refresh_token"] = refreshed["refresh_token"].strip()
+        if isinstance(refreshed.get("id_token"), str) and refreshed["id_token"].strip():
+            record["id_token"] = refreshed["id_token"].strip()
+        if isinstance(refreshed.get("expires_in"), (int, float)):
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=float(refreshed["expires_in"]))
+            record["expires_at"] = expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        elif "expires_at" in record:
+            record.pop("expires_at", None)
+
+        if isinstance(data, dict):
+            data["last_refresh"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+        auth_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_name = ""
+        try:
+            fd, tmp_name = tempfile.mkstemp(prefix=f".{auth_file.name}.", suffix=".tmp", dir=str(auth_file.parent))
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+                json.dump(data, tmp, indent=2, sort_keys=True)
+                tmp.write("\n")
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.chmod(tmp_name, 0o600)
+            os.replace(tmp_name, auth_file)
+            try:
+                dir_fd = os.open(auth_file.parent, os.O_DIRECTORY)
+            except OSError:
+                dir_fd = None
+            if dir_fd is not None:
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        except OSError as exc:
             raise CodexAuthError(
-                f"Codex access token in {auth_file} expired at {expiry.isoformat()}. "
-                "Refresh with Codex CLI or configure CODEX_TOKEN_COMMAND."
-            )
-        return token
+                f"Could not persist refreshed Codex auth file {auth_file}: {exc}. "
+                "If this path is a Kubernetes Secret or other read-only mount, copy auth.json to a writable volume."
+            ) from exc
+        finally:
+            if tmp_name:
+                try:
+                    os.unlink(tmp_name)
+                except FileNotFoundError:
+                    pass
+
+    async def _token_from_auth_file(self, auth_file: Path) -> str:
+        lock = _CODEX_REFRESH_LOCKS.setdefault(str(auth_file), asyncio.Lock())
+        async with lock:
+            lock_file = auth_file.with_suffix(auth_file.suffix + ".lock")
+            file_handle = None
+            try:
+                try:
+                    lock_file.parent.mkdir(parents=True, exist_ok=True)
+                    file_handle = lock_file.open("a+")
+                except OSError as exc:
+                    raise CodexAuthError(
+                        f"Could not create Codex auth lock file {lock_file}: {exc}. "
+                        "If this path is a Kubernetes Secret or other read-only mount, copy auth.json to a writable volume."
+                    ) from exc
+                if fcntl is not None:
+                    await asyncio.to_thread(fcntl.flock, file_handle.fileno(), fcntl.LOCK_EX)
+
+                data = self._read_auth_data(auth_file)
+                record, token, refresh_token, expiry = _codex_token_record(data)
+                if not token:
+                    raise CodexAuthError(f"Codex auth file does not contain an access token: {auth_file}")
+                if not self._needs_refresh(expiry):
+                    return token
+                if not refresh_token:
+                    raise CodexAuthError(
+                        f"Codex access token in {auth_file} is expired or near expiry, "
+                        "but no refresh token is available. Re-run Codex login or configure CODEX_TOKEN_COMMAND."
+                    )
+                if record is None:
+                    raise CodexAuthError(f"Codex auth file does not contain refreshable token data: {auth_file}")
+                refreshed = await self._refresh_codex_tokens(refresh_token)
+                self._persist_refreshed_auth(auth_file, data, record, refreshed)
+                return refreshed["access_token"].strip()
+            finally:
+                if file_handle is not None:
+                    try:
+                        if fcntl is not None:
+                            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
+                    finally:
+                        file_handle.close()
+
+    async def _bearer_token(self) -> str:
+        token_command = self._token_command()
+        if token_command:
+            return await self._token_from_command(token_command)
+
+        return await self._token_from_auth_file(self._auth_file())
 
     def _request_payload(self, messages: List[Dict[str, str]], stream: bool = False) -> dict:
         payload = {

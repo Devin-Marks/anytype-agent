@@ -162,6 +162,9 @@ def _setup_default_routes(router: LLMRouter) -> None:
                     "codex_auth_file": settings.codex_auth_file,
                     "codex_token_command": settings.codex_token_command,
                     "codex_base_url": settings.codex_base_url,
+                    "codex_auth_issuer": settings.codex_auth_issuer,
+                    "codex_client_id": settings.codex_client_id,
+                    "codex_refresh_skew_seconds": settings.codex_refresh_skew_seconds,
                 }
                 if default_provider == ProviderType.OPENAI_CODEX
                 else {}
@@ -194,6 +197,9 @@ def _setup_default_routes(router: LLMRouter) -> None:
                     "codex_auth_file": settings.codex_auth_file,
                     "codex_token_command": settings.codex_token_command,
                     "codex_base_url": settings.codex_base_url,
+                    "codex_auth_issuer": settings.codex_auth_issuer,
+                    "codex_client_id": settings.codex_client_id,
+                    "codex_refresh_skew_seconds": settings.codex_refresh_skew_seconds,
                 }
                 if guardrail_provider == ProviderType.OPENAI_CODEX
                 else {}

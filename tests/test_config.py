@@ -28,6 +28,9 @@ class TestSettings:
             assert s.codex_auth_file == "/var/lib/anytype-agent/codex/auth.json"
             assert s.codex_token_command is None
             assert s.codex_base_url is None
+            assert s.codex_auth_issuer is None
+            assert s.codex_client_id is None
+            assert s.codex_refresh_skew_seconds == 300
             assert s.default_provider == "openai"
             assert s.openai_api_key is None
             assert s.guardrails_config_path == "/etc/guardrails"
@@ -54,6 +57,9 @@ class TestSettings:
             "CODEX_AUTH_FILE": "/custom/codex/auth.json",
             "CODEX_TOKEN_COMMAND": "print-token",
             "CODEX_BASE_URL": "https://codex.example/responses",
+            "CODEX_AUTH_ISSUER": "https://auth.example",
+            "CODEX_CLIENT_ID": "client-123",
+            "CODEX_REFRESH_SKEW_SECONDS": "120",
             "GUARDRAILS_CONFIG_PATH": "/custom/guardrails",
             "SHELL_PROTECTION_ENABLED": "false",
             "MAX_INPUT_LENGTH": "5000",
@@ -77,6 +83,9 @@ class TestSettings:
             assert s.codex_auth_file == "/custom/codex/auth.json"
             assert s.codex_token_command == "print-token"
             assert s.codex_base_url == "https://codex.example/responses"
+            assert s.codex_auth_issuer == "https://auth.example"
+            assert s.codex_client_id == "client-123"
+            assert s.codex_refresh_skew_seconds == 120
             assert s.guardrails_config_path == "/custom/guardrails"
             assert s.shell_protection_enabled is False
             assert s.max_input_length == 5000

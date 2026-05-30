@@ -1,4 +1,6 @@
 """Tests for src/llm/ module."""
+import base64
+import json
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -18,6 +20,12 @@ from src.llm.providers import (
     _parse_expiry,
 )
 from src.llm.router import LLMRouter, get_router, _setup_default_routes
+
+
+def _jwt_with_exp(exp: int) -> str:
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=")
+    return f"{header}.{payload}.sig"
 
 
 class TestProviderType:
@@ -286,8 +294,208 @@ class TestOpenAICodexProvider:
             )
         )
 
-        with pytest.raises(CodexAuthError, match="expired"):
+        with pytest.raises(CodexAuthError, match="expired or near expiry"):
             await provider._bearer_token()
+
+    @pytest.mark.asyncio
+    async def test_expired_token_refresh_success(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            json.dumps(
+                {
+                    "auth_mode": "chatgpt",
+                    "tokens": {
+                        "access_token": "old-access",
+                        "refresh_token": "old-refresh",
+                        "account_id": "acct",
+                        "expires_at": "2000-01-01T00:00:00Z",
+                    },
+                    "other": {"preserved": True},
+                }
+            )
+        )
+        captured = {}
+
+        class MockResponse:
+            status_code = 200
+
+            def json(self):
+                return {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}
+
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, headers, json):
+                captured["url"] = url
+                captured["headers"] = headers
+                captured["json"] = json
+                return MockResponse()
+
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        with patch("src.llm.providers.httpx.AsyncClient", MockClient):
+            assert await provider._bearer_token() == "new-access"
+
+        saved = json.loads(auth_file.read_text())
+        assert saved["tokens"]["access_token"] == "new-access"
+        assert saved["tokens"]["refresh_token"] == "new-refresh"
+        assert saved["tokens"]["account_id"] == "acct"
+        assert saved["other"] == {"preserved": True}
+        assert saved["last_refresh"]
+        assert oct(auth_file.stat().st_mode & 0o777) == "0o600"
+        assert captured["url"] == "https://auth.openai.com/oauth/token"
+        assert captured["headers"] == {"Content-Type": "application/json"}
+        assert captured["json"] == {
+            "grant_type": "refresh_token",
+            "refresh_token": "old-refresh",
+            "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        }
+
+    @pytest.mark.asyncio
+    async def test_near_expiry_token_refreshes(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            json.dumps(
+                {
+                    "tokens": {
+                        "access_token": _jwt_with_exp(4102444800),
+                        "refresh_token": "refresh",
+                        "expires_at": "2999-01-01T00:03:00Z",
+                    }
+                }
+            )
+        )
+
+        class MockResponse:
+            status_code = 200
+
+            def json(self):
+                return {"access_token": "near-new"}
+
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, *args, **kwargs):
+                return MockResponse()
+
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file), "codex_refresh_skew_seconds": 40000000000},
+            )
+        )
+
+        with patch("src.llm.providers.httpx.AsyncClient", MockClient):
+            assert await provider._bearer_token() == "near-new"
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_does_not_leak_tokens(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            '{"tokens":{"access_token":"old-secret","refresh_token":"refresh-secret","expires_at":"2000-01-01T00:00:00Z"}}'
+        )
+
+        class MockResponse:
+            status_code = 401
+            text = '{"error":"refresh-secret"}'
+
+            def json(self):
+                return {"error": "refresh-secret"}
+
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, *args, **kwargs):
+                return MockResponse()
+
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        with patch("src.llm.providers.httpx.AsyncClient", MockClient), pytest.raises(CodexAuthError) as exc_info:
+            await provider._bearer_token()
+
+        message = str(exc_info.value)
+        assert "HTTP 401" in message
+        assert "old-secret" not in message
+        assert "refresh-secret" not in message
+
+    @pytest.mark.asyncio
+    async def test_read_only_auth_directory_error_mentions_writable_volume(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            '{"tokens":{"access_token":"old","refresh_token":"refresh","expires_at":"2000-01-01T00:00:00Z"}}'
+        )
+
+        class MockResponse:
+            status_code = 200
+
+            def json(self):
+                return {"access_token": "new"}
+
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, *args, **kwargs):
+                return MockResponse()
+
+        def raise_read_only(*args, **kwargs):
+            raise PermissionError("read-only file system")
+
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        with (
+            patch("src.llm.providers.httpx.AsyncClient", MockClient),
+            patch("src.llm.providers.tempfile.mkstemp", raise_read_only),
+            pytest.raises(CodexAuthError) as exc_info,
+        ):
+            await provider._bearer_token()
+        assert "writable volume" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_token_command_takes_precedence(self, tmp_path):

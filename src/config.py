@@ -88,6 +88,21 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CODEX_BASE_URL", "codex_base_url"),
         description="Override Codex backend endpoint; defaults to the known Codex responses endpoint",
     )
+    codex_auth_issuer: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CODEX_AUTH_ISSUER", "codex_auth_issuer"),
+        description="Override Codex OAuth issuer; defaults to https://auth.openai.com",
+    )
+    codex_client_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CODEX_CLIENT_ID", "codex_client_id"),
+        description="Override Codex OAuth client id; defaults to the Codex CLI/OpenCode client id",
+    )
+    codex_refresh_skew_seconds: int = Field(
+        default=300,
+        validation_alias=AliasChoices("CODEX_REFRESH_SKEW_SECONDS", "codex_refresh_skew_seconds"),
+        description="Refresh Codex access tokens this many seconds before expiry",
+    )
 
     # Legacy/provider-specific settings. Kept for backward compatibility.
     openai_api_key: Optional[str] = Field(
