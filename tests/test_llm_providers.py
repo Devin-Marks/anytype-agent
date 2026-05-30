@@ -365,6 +365,59 @@ class TestOpenAICodexProvider:
         }
 
     @pytest.mark.asyncio
+    async def test_opencode_style_auth_refresh_preserves_schema(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            json.dumps(
+                {
+                    "type": "oauth",
+                    "access": "old-access",
+                    "refresh": "old-refresh",
+                    "expires": 946684800000,
+                    "accountId": "acct",
+                }
+            )
+        )
+
+        class MockResponse:
+            status_code = 200
+
+            def json(self):
+                return {"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600}
+
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, *args, **kwargs):
+                return MockResponse()
+
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        with patch("src.llm.providers.httpx.AsyncClient", MockClient):
+            assert await provider._bearer_token() == "new-access"
+
+        saved = json.loads(auth_file.read_text())
+        assert saved["access"] == "new-access"
+        assert saved["refresh"] == "new-refresh"
+        assert isinstance(saved["expires"], int)
+        assert "access_token" not in saved
+        assert "refresh_token" not in saved
+        assert saved["accountId"] == "acct"
+
+    @pytest.mark.asyncio
     async def test_near_expiry_token_refreshes(self, tmp_path):
         auth_file = tmp_path / "auth.json"
         auth_file.write_text(
@@ -496,6 +549,28 @@ class TestOpenAICodexProvider:
         ):
             await provider._bearer_token()
         assert "writable volume" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_read_only_auth_directory_can_use_fresh_token_without_lock(self, tmp_path):
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text('{"tokens":{"access_token":"fresh-token","expires_at":"2999-01-01T00:00:00Z"}}')
+        provider = OpenAICodexProvider(
+            LLMConfig(
+                provider=ProviderType.OPENAI_CODEX,
+                model="gpt-5-codex",
+                extra_params={"codex_auth_file": str(auth_file)},
+            )
+        )
+
+        original_open = type(auth_file).open
+
+        def fail_lock_open(path_self, *args, **kwargs):
+            if str(path_self).endswith(".lock"):
+                raise PermissionError("read-only file system")
+            return original_open(path_self, *args, **kwargs)
+
+        with patch("src.llm.providers.Path.open", fail_lock_open):
+            assert await provider._bearer_token() == "fresh-token"
 
     @pytest.mark.asyncio
     async def test_token_command_takes_precedence(self, tmp_path):

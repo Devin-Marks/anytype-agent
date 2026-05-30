@@ -102,7 +102,7 @@ CODEX_REFRESH_SKEW_SECONDS=300
 
 `CODEX_TOKEN_COMMAND` takes precedence over `CODEX_AUTH_FILE`. Use it when you have external tooling that safely refreshes the token and prints only the bearer token. The command is parsed into argv and executed without a shell, has a 15-second timeout, and error messages intentionally do not echo stderr because helpers may accidentally write secrets there.
 
-Without a token command, the provider reads a Codex-compatible `auth.json`, extracts explicit access-token fields such as `access_token`/`accessToken`, detects expiry from common expiry fields or the JWT `exp` claim, and refreshes expired or near-expired ChatGPT/Codex access tokens using the same OAuth token endpoint, client id, and `refresh_token` grant used by current OpenAI Codex CLI/OpenCode implementations. Refreshed credentials are written back atomically with `0600` file permissions where the filesystem supports it. This refresh flow is private subscription auth and may change; for production-style automation, OpenAI still recommends Platform API keys.
+Without a token command, the provider reads a Codex-compatible `auth.json`, extracts explicit access-token fields such as `access_token`/`accessToken`/`access`, detects expiry from common expiry fields or the JWT `exp` claim, and refreshes expired or near-expired ChatGPT/Codex access tokens using the same OAuth token endpoint, client id, and `refresh_token` grant used by current OpenAI Codex CLI/OpenCode implementations. Refreshed credentials preserve the existing token key style where practical and are written back atomically with `0600` file permissions where the filesystem supports it. This refresh flow is private subscription auth and may change; for production-style automation, OpenAI still recommends Platform API keys.
 
 ### Kubernetes exec login workflow
 
@@ -131,7 +131,7 @@ kubectl create secret generic anytype-agent-codex-auth \
   --from-file=auth.json="$HOME/.codex/auth.json"
 ```
 
-Mounting that secret directly is acceptable only as a bootstrap or non-refreshing workflow. Kubernetes Secret volumes are read-only: Anytype-Agent can read the initial access token but cannot persist refreshed credentials there, and refresh-token rotation may break future refreshes. For auto-refresh, copy the Secret into a writable PVC with an initContainer, or create/populate the PVC directly, then mount the PVC at `/var/lib/anytype-agent/codex`.
+Mounting that secret directly is acceptable only as a bootstrap or non-refreshing workflow. Kubernetes Secret volumes are read-only: Anytype-Agent can read a still-valid access token without taking a write lock, but it cannot persist refreshed credentials there once refresh is required, and refresh-token rotation may break future refreshes. For auto-refresh, copy the Secret into a writable PVC with an initContainer, or create/populate the PVC directly, then mount the PVC at `/var/lib/anytype-agent/codex`.
 
 Writable PVC example:
 

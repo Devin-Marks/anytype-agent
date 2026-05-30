@@ -86,8 +86,8 @@ def _jwt_expiry(token: str) -> datetime | None:
 def _codex_token_record(data: Any) -> tuple[dict[str, Any] | None, str | None, str | None, datetime | None]:
     """Find a Codex-compatible token record with access/refresh tokens."""
     expiry_keys = ("expires_at", "expiresAt", "expires", "expiry", "expiration")
-    access_keys = ("access_token", "accessToken", "bearer_token", "bearerToken")
-    refresh_keys = ("refresh_token", "refreshToken")
+    access_keys = ("access_token", "accessToken", "access", "bearer_token", "bearerToken")
+    refresh_keys = ("refresh_token", "refreshToken", "refresh")
 
     best: tuple[dict[str, Any] | None, str | None, str | None, datetime | None] = (None, None, None, None)
 
@@ -350,17 +350,34 @@ class OpenAICodexProvider(BaseLLMProvider):
             raise CodexAuthError("Codex OAuth token refresh response did not contain an access token")
         return data
 
+    @staticmethod
+    def _existing_key(record: dict[str, Any], candidates: tuple[str, ...], default: str) -> str:
+        """Return the first existing key from candidates to preserve auth.json schema style."""
+        return next((key for key in candidates if key in record), default)
+
     def _persist_refreshed_auth(self, auth_file: Path, data: Any, record: dict[str, Any], refreshed: dict[str, Any]) -> None:
-        record["access_token"] = refreshed["access_token"].strip()
+        access_key = self._existing_key(record, ("access_token", "accessToken", "access"), "access_token")
+        refresh_key = self._existing_key(record, ("refresh_token", "refreshToken", "refresh"), "refresh_token")
+        id_key = self._existing_key(record, ("id_token", "idToken"), "id_token")
+        expiry_key = self._existing_key(
+            record,
+            ("expires_at", "expiresAt", "expires", "expiry", "expiration"),
+            "expires_at",
+        )
+
+        record[access_key] = refreshed["access_token"].strip()
         if isinstance(refreshed.get("refresh_token"), str) and refreshed["refresh_token"].strip():
-            record["refresh_token"] = refreshed["refresh_token"].strip()
+            record[refresh_key] = refreshed["refresh_token"].strip()
         if isinstance(refreshed.get("id_token"), str) and refreshed["id_token"].strip():
-            record["id_token"] = refreshed["id_token"].strip()
-        if isinstance(refreshed.get("expires_in"), (int, float)):
+            record[id_key] = refreshed["id_token"].strip()
+        if isinstance(refreshed.get("expires_in"), (int, float)) and any(
+            key in record for key in ("expires_at", "expiresAt", "expires", "expiry", "expiration")
+        ):
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=float(refreshed["expires_in"]))
-            record["expires_at"] = expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        elif "expires_at" in record:
-            record.pop("expires_at", None)
+            if expiry_key == "expires":
+                record[expiry_key] = int(expires_at.timestamp() * 1000)
+            else:
+                record[expiry_key] = expires_at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
         if isinstance(data, dict):
             data["last_refresh"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -397,7 +414,22 @@ class OpenAICodexProvider(BaseLLMProvider):
                 except FileNotFoundError:
                     pass
 
+    def _token_status_from_auth_file(
+        self,
+        auth_file: Path,
+    ) -> tuple[Any, dict[str, Any] | None, str, str | None, datetime | None, bool]:
+        """Read auth data and return token state without exposing token values in errors."""
+        data = self._read_auth_data(auth_file)
+        record, token, refresh_token, expiry = _codex_token_record(data)
+        if not token:
+            raise CodexAuthError(f"Codex auth file does not contain an access token: {auth_file}")
+        return data, record, token, refresh_token, expiry, self._needs_refresh(expiry)
+
     async def _token_from_auth_file(self, auth_file: Path) -> str:
+        data, record, token, refresh_token, _expiry, needs_refresh = self._token_status_from_auth_file(auth_file)
+        if not needs_refresh:
+            return token
+
         lock = _CODEX_REFRESH_LOCKS.setdefault(str(auth_file), asyncio.Lock())
         async with lock:
             lock_file = auth_file.with_suffix(auth_file.suffix + ".lock")
@@ -414,11 +446,8 @@ class OpenAICodexProvider(BaseLLMProvider):
                 if fcntl is not None:
                     await asyncio.to_thread(fcntl.flock, file_handle.fileno(), fcntl.LOCK_EX)
 
-                data = self._read_auth_data(auth_file)
-                record, token, refresh_token, expiry = _codex_token_record(data)
-                if not token:
-                    raise CodexAuthError(f"Codex auth file does not contain an access token: {auth_file}")
-                if not self._needs_refresh(expiry):
+                data, record, token, refresh_token, _expiry, needs_refresh = self._token_status_from_auth_file(auth_file)
+                if not needs_refresh:
                     return token
                 if not refresh_token:
                     raise CodexAuthError(
